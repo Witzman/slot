@@ -1,6 +1,6 @@
 # SLOT
 
-A casino-style game for the web browser that combines a slot machine, video poker and a coin pusher. It is in its first steps: the engine is in place, the game is not built yet.
+A casino-style game for the web browser that combines a slot machine, video poker and a coin pusher. It is a roguelike: every run you win coins on three machines, pay a rising quota, pick charms and buy upgrades; between runs you spend chips on a tech tree, finish missions and achievements, and collect and combine relics.
 
 It runs in any modern browser with no install and no account.
 
@@ -25,4 +25,5 @@ The engine is deterministic: a fixed 1 ms physics step, a seeded random generato
 
 Newest first. A short summary of what was added, no details.
 
+- **Playable prototype:** slot machine, video poker and coin pusher in one run, quota rounds, charm draft, coin upgrades, tech tree, missions, achievements, relics you can combine, saved in the browser.
 - **Start:** the engine of the Pinball project (physics, rules, game flow, audio, renderer, storage) with a demo table.
