@@ -38,7 +38,7 @@ function drive(run: Run, m = baseMods()): void {
 describe("a run", () => {
   it("starts with the coins, turns and quota of its round", () => {
     const run = startRun(1, baseMods());
-    expect([run.coins, run.turnsLeft, run.quota, run.round, run.phase]).toEqual([40, 12, 15, 1, "play"]);
+    expect([run.coins, run.turnsLeft, run.quota, run.round, run.phase]).toEqual([50, 12, 14, 1, "play"]);
     expect(run.missions).toHaveLength(3);
   });
 
@@ -47,7 +47,7 @@ describe("a run", () => {
     const res = spinSlot(run, baseMods(), 2);
     expect(typeof res).toBe("object");
     if (typeof res === "string") return;
-    expect(run.coins).toBe(38);
+    expect(run.coins).toBe(48);
     expect(run.turnsLeft).toBe(11);
     expect(run.pour.reduce((n, k) => n + (k === "gold" ? 5 : 1), 0)).toBe(res.payout);
     expect(run.poker.phase).toBe("hold");
@@ -156,7 +156,7 @@ describe("a run", () => {
     expect(closeRound(rich, baseMods(), mk)).toBe(true);
     expect(rich.phase).toBe("draft");
     expect(rich.round).toBe(2);
-    expect(rich.coins).toBe(500 - 15);
+    expect(rich.coins).toBe(500 - quotaFor(1, baseMods()));
     expect(rich.draft).toHaveLength(3);
 
     const poor = startRun(5, baseMods());
@@ -168,7 +168,7 @@ describe("a run", () => {
 
   it("coins still on the shelf are not counted against the quota", () => {
     const run = startRun(5, baseMods());
-    run.coins = 14;
+    run.coins = 13;
     run.turnsLeft = 0;
     run.pusher.coins = Array.from({ length: 50 }, (_, i) => ({ id: i, x: 5, y: 6, kind: "coin" as const }));
     closeRound(run, baseMods(), mk);
@@ -260,7 +260,7 @@ describe("the meta game", () => {
     expect(buyTech(meta, "purse1")).toBe(false);
     expect(buyTech(meta, "purse2")).toBe(true);
     expect(meta.chips).toBe(100 - 3 - 8);
-    expect(modsFor(meta, []).startCoins).toBe(70);
+    expect(modsFor(meta, []).startCoins).toBe(80);
   });
 
   it("tree: every node can be reached and has an effect", () => {
@@ -446,7 +446,7 @@ describe("crafting relics", () => {
   it("pays a start coin for every two relics", () => {
     const meta = newMeta();
     meta.relics = ["penny", "dice", "tooth"];
-    expect(modsFor(meta, []).startCoins).toBe(41);
+    expect(modsFor(meta, []).startCoins).toBe(51);
   });
 });
 
@@ -691,8 +691,8 @@ describe("bosses", () => {
     expect(modsFor(meta, [], {}, "slippery").pusherPayMul).toBeCloseTo(0.6);
     expect(modsFor(meta, [], {}, "landlord").turns).toBe(plain.turns - 3);
     expect(modsFor(meta, [], {}, "edge").slotWinMul).toBeCloseTo(0.7);
-    expect(modsFor(meta, [], {}, "collector").quotaMul).toBeCloseTo(1.5);
-    for (const b of BOSSES) expect(modsFor(meta, [], {}, b.id).quotaMul, b.id).toBeGreaterThan(1.2);
+    expect(modsFor(meta, [], {}, "collector").quotaMul).toBeCloseTo(1.35);
+    for (const b of BOSSES) expect(modsFor(meta, [], {}, b.id).quotaMul, b.id).toBeGreaterThanOrEqual(1.2);
     const run = toRound(3);
     run.coins = 500;
     run.turnsLeft = 0;
