@@ -440,3 +440,78 @@ describe("crafting relics", () => {
     expect(modsFor(meta, []).startCoins).toBe(41);
   });
 });
+
+describe("pusher zones", () => {
+  const pay = (run: Run, kinds: ("coin" | "gold")[], m = baseMods()): number => {
+    run.pusher.coins = kinds.map((kind, i) => ({ id: i, x: 1 + i, y: 12.2, kind }));
+    return tickPusher(run, m, 1);
+  };
+
+  it("starts in zone 1 and rises exactly at the heat thresholds, never above the max", async () => {
+    const { ZONE_HEAT } = await import("../../src/game/run");
+    const run = startRun(1, baseMods());
+    const m = baseMods();
+    expect(run.zone).toBe(1);
+    pay(run, Array(ZONE_HEAT[0]! - 1).fill("coin"), m);
+    expect(run.zone).toBe(1);
+    pay(run, ["coin"], m);
+    expect([run.zone, run.zoneHeat]).toEqual([2, 0]);
+    expect(drainEvents(run).some((e) => e.startsWith("Zone 2"))).toBe(true);
+    for (let i = 0; i < 10; i++) pay(run, Array(40).fill("gold"), m);
+    expect(run.zone).toBe(m.zoneMax);
+  });
+
+  it("pays more per coin in a higher zone", () => {
+    const run = startRun(1, baseMods());
+    run.zone = 3;
+    expect(pay(run, ["gold", "gold"])).toBe(2 * Math.round(5 * 1.4));
+    run.zone = 1;
+    expect(pay(run, ["gold"])).toBe(5);
+  });
+
+  it("drops a zone when a round closes", () => {
+    const run = startRun(1, baseMods());
+    run.zone = 3;
+    run.coins = 100;
+    run.turnsLeft = 0;
+    closeRound(run, baseMods(), mk);
+    expect([run.zone, run.zoneHeat]).toEqual([2, 0]);
+  });
+
+  it("cools down when the pusher pays nothing for a long time, and drops a zone when the heat is gone", () => {
+    const run = startRun(1, baseMods());
+    const m = baseMods();
+    run.pusher.coins = [];
+    run.zone = 2;
+    run.zoneHeat = 2;
+    tickPusher(run, m, 600);
+    expect([run.zone, run.zoneHeat]).toEqual([2, 2]);
+    tickPusher(run, m, 60 * 2);
+    expect([run.zone, run.zoneHeat]).toEqual([2, 0]);
+    tickPusher(run, m, 60);
+    expect([run.zone, run.zoneHeat]).toEqual([1, 0]);
+    tickPusher(run, m, 60 * 10);
+    expect(run.zone).toBe(1);
+  });
+
+  it("is raised and widened by the tree and a charm", () => {
+    const meta = newMeta();
+    meta.tech = ["gold1", "free1", "zone4", "zone5"];
+    expect(modsFor(meta, []).zoneMax).toBe(5);
+    expect(modsFor(newMeta(), ["streak"]).zoneStep).toBeCloseTo(0.3);
+  });
+
+  it("reads an old save without zone fields as zone 1, and keeps a saved one", async () => {
+    const { restoreRun } = await import("../../src/game/run");
+    const raw = JSON.parse(JSON.stringify(startRun(1, baseMods())));
+    delete raw.zone;
+    delete raw.zoneHeat;
+    delete raw.zoneIdle;
+    expect(restoreRun(raw)).toMatchObject({ zone: 1, zoneHeat: 0, zoneIdle: 0 });
+    raw.zone = 3;
+    raw.zoneHeat = 5;
+    expect(restoreRun(raw)).toMatchObject({ zone: 3, zoneHeat: 5 });
+    raw.zone = 99;
+    expect(restoreRun(raw)?.zone).toBe(5);
+  });
+});

@@ -34,6 +34,8 @@ export const TECH: readonly TechNode[] = [
   { id: "gold1", branch: "pusher", name: "Gilded Coins", text: "More gold coins on the pusher.", cost: 4, requires: [], effect: (m) => void (m.goldChance += 0.07) },
   { id: "prize1", branch: "pusher", name: "Prize Shelf", text: "Prizes drop more often.", cost: 6, requires: ["gold1"], effect: (m) => void (m.prizeChance += 0.04) },
   { id: "free1", branch: "pusher", name: "Free Drop", text: "One free pusher drop at the start of every round.", cost: 8, requires: ["gold1"], effect: (m) => void (m.freeDropsPerRound += 1) },
+  { id: "zone4", branch: "pusher", name: "Zone Boost", text: "The pusher can reach zone 4.", cost: 12, requires: ["free1"], effect: (m) => void (m.zoneMax = Math.max(m.zoneMax, 4)) },
+  { id: "zone5", branch: "pusher", name: "Zone Boost II", text: "The pusher can reach zone 5.", cost: 20, requires: ["zone4"], effect: (m) => void (m.zoneMax = 5) },
   { id: "pmul", branch: "pusher", name: "Deep Pockets", text: "Pusher payouts pay 25% more.", cost: 15, requires: ["free1"], effect: (m) => void (m.pusherPayMul *= 1.25) },
 ];
 
@@ -57,6 +59,7 @@ export const CHARMS: readonly Charm[] = [
   { id: "jackpot", name: "Jackpot Fever", text: "More sevens on the reels.", effect: (m) => void (m.weights.seven += 1) },
   { id: "magnet", name: "Scatter Magnet", text: "More coin scatters on the reels.", effect: (m) => void (m.weights.coin += 2) },
   { id: "pusher", name: "Greasy Plate", text: "Pusher payouts pay 30% more.", effect: (m) => void (m.pusherPayMul *= 1.3) },
+  { id: "streak", name: "Hot Streak", text: "Each pusher zone pays 10% more.", effect: (m) => void (m.zoneStep += 0.1) },
   { id: "wildcard", name: "Wild Card", text: "More wild stars on the reels.", effect: (m) => void (m.weights.wild += 2) },
 ];
 

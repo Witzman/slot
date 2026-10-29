@@ -92,7 +92,10 @@ async function boot(): Promise<void> {
           toast("A relic you already own: +1 chip");
         }
       }
-      for (const e of drainEvents(run)) toast(e);
+      for (const e of drainEvents(run)) {
+        toast(e);
+        if (e.startsWith("Zone ")) sfx.gold();
+      }
       if (run.phase === "over" && !run.finished) {
         ui.overChips = finishRun(meta, run);
         sfx.lose();
@@ -314,7 +317,7 @@ async function boot(): Promise<void> {
           }
         }
       } else acc = 0;
-      pc.draw(run.pusher, aim, live);
+      pc.draw(run.pusher, aim, live, run.zone);
     } else acc = 0;
     requestAnimationFrame(frame);
   }

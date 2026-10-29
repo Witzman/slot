@@ -3,7 +3,7 @@ import { type Pusher, D, R, W, plateFront } from "../game/pusher";
 const TOP = 1; // shelf margin above the plate, in units
 
 export interface PusherCanvas {
-  draw(p: Pusher, aim: number, live: boolean): void;
+  draw(p: Pusher, aim: number, live: boolean, zone: number): void;
   /** field x of a pointer position in client px */
   xAt(clientX: number): number;
   resize(): void;
@@ -66,7 +66,7 @@ export function createPusherCanvas(canvas: HTMLCanvasElement): PusherCanvas {
       const rect = canvas.getBoundingClientRect();
       return ((clientX - rect.left) / rect.width) * W;
     },
-    draw(p, aim, live) {
+    draw(p, aim, live, zone) {
       const c = ctx!;
       c.clearRect(0, 0, cssW, cssH);
       const shelf = c.createLinearGradient(0, Y(0), 0, Y(D));
@@ -76,8 +76,9 @@ export function createPusherCanvas(canvas: HTMLCanvasElement): PusherCanvas {
       c.fillRect(0, Y(0), cssW, Y(D) - Y(0));
       c.fillStyle = "#0d0816";
       c.fillRect(0, Y(D), cssW, cssH - Y(D));
-      c.fillStyle = "#ff3d81";
-      c.fillRect(0, Y(D) - 2, cssW, 4);
+      const band = ["#6b7280", "#3ee6c8", "#ffcc33", "#ff8a3d", "#ff3d81"][Math.min(4, Math.max(0, zone - 1))] as string;
+      c.fillStyle = band;
+      c.fillRect(0, Y(D) - 2 - zone, cssW, 4 + zone);
       c.fillStyle = "#ffcc33";
       c.font = `${Math.round(scale * 0.5)}px system-ui`;
       c.textAlign = "center";

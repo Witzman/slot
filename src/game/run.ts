@@ -39,6 +39,12 @@ export interface Run {
   rerollsLeft: number;
   poker: PokerState;
   pusher: Pusher;
+  /** pusher zone 1..5: rises while coins pay out, multiplies the pusher payout, drops when a round closes */
+  zone: number;
+  /** wallet coins paid by the pusher since the zone last changed (negative while idle) */
+  zoneHeat: number;
+  /** steps since the pusher last paid */
+  zoneIdle: number;
   /** winnings on their way onto the pusher: slot and poker pay by pouring coins on the shelf */
   pour: ("coin" | "gold")[];
   stats: RunStats;
@@ -78,6 +84,9 @@ export function startRun(seed: number, m: Mods): Run {
     rerollsLeft: m.rerolls,
     poker: freshPoker(),
     pusher: newPusher(rng),
+    zone: 1,
+    zoneHeat: 0,
+    zoneIdle: 0,
     pour: [],
     stats: { spins: 0, slotWins: 0, bestSlotWin: 0, jackpots: 0, hands: 0, goodHands: 0, bestHand: 0, drops: 0, pusherPaid: 0, relics: 0, maxCoins: m.startCoins },
     missions: [],
@@ -105,6 +114,14 @@ function gain(run: Run, n: number): void {
 }
 
 export const MIN_BET = 1;
+
+/** Heat needed to leave zone 1, 2, 3, 4. */
+export const ZONE_HEAT = [8, 14, 22, 32];
+/** Steps without a payout before the heat starts to cool, and the steps per point of heat after that. */
+export const ZONE_IDLE = 600;
+export const ZONE_COOL = 60;
+
+export const zoneMul = (run: Run, m: Mods): number => 1 + m.zoneStep * (run.zone - 1);
 
 /** The round can be closed once the turns are gone or nothing more can be paid for, and no hand is open. */
 export function canClose(run: Run, m: Mods): boolean {
@@ -137,6 +154,8 @@ function settle(run: Run, m: Mods, mk: (charms: string[]) => Mods): void {
     return;
   }
   run.coins -= run.quota;
+  run.zone = Math.max(1, run.zone - 1);
+  run.zoneHeat = 0;
   run.completed++;
   run.events.push(`Quota of ${run.quota} paid.`);
   run.round++;
@@ -256,20 +275,40 @@ export function tickPusher(run: Run, m: Mods, n: number): number {
     run.pour.shift();
   }
   const fallen = stepMany(run.pusher, n);
+  const mul = m.pusherPayMul * zoneMul(run, m);
   let paid = 0;
   for (const c of fallen) {
     if (c.kind === "prize") {
       run.found++;
       run.stats.relics++;
-      paid += Math.round(2 * m.pusherPayMul);
+      paid += Math.max(1, Math.round(2 * mul));
       continue;
     }
-    paid += Math.max(1, Math.round((c.kind === "gold" ? 5 : 1) * m.pusherPayMul));
+    paid += Math.max(1, Math.round((c.kind === "gold" ? 5 : 1) * mul));
   }
   if (paid > 0) {
     gain(run, paid);
     run.stats.pusherPaid += paid;
+    run.zoneIdle = 0;
+    run.zoneHeat += paid;
+    const need = ZONE_HEAT[run.zone - 1];
+    if (need !== undefined && run.zone < m.zoneMax && run.zoneHeat >= need) {
+      run.zone++;
+      run.zoneHeat = 0;
+      run.events.push(`Zone ${run.zone}! Pusher pays x${zoneMul(run, m).toFixed(1)}`);
+    }
     updateMissions(run);
+  } else {
+    const before = run.zoneIdle;
+    run.zoneIdle += n;
+    if (run.zoneIdle > ZONE_IDLE) {
+      const cools = Math.floor((run.zoneIdle - ZONE_IDLE) / ZONE_COOL) - Math.max(0, Math.floor((before - ZONE_IDLE) / ZONE_COOL));
+      run.zoneHeat -= Math.max(0, cools);
+      if (run.zoneHeat < 0) {
+        run.zoneHeat = 0;
+        if (run.zone > 1) run.zone--;
+      }
+    }
   }
   return paid;
 }
@@ -303,6 +342,8 @@ export function restoreRun(raw: unknown): Run | null {
     const l = (o.upgrades as Record<string, unknown> | undefined)?.[u.id];
     if (typeof l === "number" && l >= 1 && l <= u.max) upgrades[u.id] = Math.floor(l);
   }
+  const num0 = (x: unknown): number => (typeof x === "number" && Number.isFinite(x) ? x : 0);
+  const zone = Math.min(5, Math.max(1, Math.floor(num0(o.zone) || 1)));
   const pour = Array.isArray(o.pour) ? o.pour.filter((k) => k === "coin" || k === "gold") : [];
-  return { ...(o as Run), pour, upgrades, events: [], found: 0, finished: o.finished === true, overReason: o.overReason ?? "" };
+  return { ...(o as Run), zone, zoneHeat: Math.max(0, num0(o.zoneHeat)), zoneIdle: Math.max(0, num0(o.zoneIdle)), pour, upgrades, events: [], found: 0, finished: o.finished === true, overReason: o.overReason ?? "" };
 }

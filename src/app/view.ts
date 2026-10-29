@@ -2,7 +2,7 @@ import { ACHIEVEMENTS, type Meta } from "../game/meta";
 import { CHARMS, RELICS, TECH, UPGRADES, upgradeCost } from "../game/content";
 import type { Mods } from "../game/mods";
 import { HAND_LABEL, HAND_ORDER, type HandName, classify, rank, suit } from "../game/poker";
-import { type Run, canClose } from "../game/run";
+import { type Run, ZONE_HEAT, canClose, zoneMul } from "../game/run";
 import { missionDef, missionProgress } from "../game/missions";
 import { COLS, LINES, ROWS, type Sym } from "../game/slot";
 
@@ -143,8 +143,9 @@ export function pusherPanelInfo(v: View): string {
   const live = run !== null && run.phase === "play";
   const close = run !== null && canClose(run, mods);
   const hint = !live || !run ? "Start a run to play" : `${run.pusher.coins.length} on the shelf · ${run.pour.length} coming · ${run.freeDrops} free drops · tap to drop (1 turn)`;
+  const zone = run ? `Zone ${run.zone} (x${zoneMul(run, mods).toFixed(1)}${run.zone < mods.zoneMax ? `, heat ${run.zoneHeat}/${ZONE_HEAT[run.zone - 1] ?? 0}` : ", max"})` : "";
   return `<p class="note">${esc(ui.pusherNote) || "3 · Pusher: your wins land here. Only coins pushed off the front count as yours."}</p>
-    <p class="hint">${hint}</p>
+    <p class="hint">${zone ? `<strong class="gold">${zone}</strong> · ` : ""}${hint}</p>
     ${close && run ? `<button class="big" data-act="close">CLOSE ROUND <small>pay quota ${run.quota} · you have ${run.coins}</small></button>` : ""}`;
 }
 
