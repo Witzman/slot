@@ -1,8 +1,8 @@
-import { CHARMS, RARITY_PRICE, RARITY_WEIGHT, UPGRADES, upgradeCost } from "./content";
+import { BOSSES, BOSS_EVERY, CHARMS, RARITY_PRICE, RARITY_WEIGHT, UPGRADES, upgradeCost } from "./content";
 import type { Mods } from "./mods";
 import { type HandName, HAND_ORDER, type PokerState, classify, deal, draw, freshPoker, payFor, toggleHold } from "./poker";
 import { type CoinKind, type Pusher, W, dropCoin, newPusher, stepMany } from "./pusher";
-import { type Rng, makeRng, next, weighted } from "./rng";
+import { type Rng, int, makeRng, next, weighted } from "./rng";
 import { type SlotResult, spin } from "./slot";
 import { type MissionState, drawMissions, updateMissions } from "./missions";
 
@@ -19,6 +19,7 @@ export interface RunStats {
   pusherPaid: number;
   relics: number;
   maxCoins: number;
+  bosses: number;
 }
 
 export type RunPhase = "play" | "draft" | "over";
@@ -26,6 +27,10 @@ export type RunPhase = "play" | "draft" | "over";
 export interface Run {
   rng: Rng;
   round: number;
+  /** stake the run was started at: more quota, from stake 3 one turn less */
+  stake: number;
+  /** boss of the current round, or null */
+  boss: string | null;
   completed: number;
   turnsLeft: number;
   coins: number;
@@ -73,11 +78,13 @@ export function quotaFor(round: number, m: Mods): number {
   return Math.max(1, Math.round(QUOTA_BASE * Math.pow(QUOTA_GROWTH, round - 1) * m.quotaMul));
 }
 
-export function startRun(seed: number, m: Mods): Run {
+export function startRun(seed: number, m: Mods, stake = 0): Run {
   const rng = makeRng(seed);
   const run: Run = {
     rng,
     round: 1,
+    stake,
+    boss: null,
     completed: 0,
     turnsLeft: m.turns,
     coins: m.startCoins,
@@ -97,7 +104,7 @@ export function startRun(seed: number, m: Mods): Run {
     zoneHeat: 0,
     zoneIdle: 0,
     pour: [],
-    stats: { spins: 0, slotWins: 0, bestSlotWin: 0, jackpots: 0, hands: 0, goodHands: 0, bestHand: 0, drops: 0, pusherPaid: 0, relics: 0, maxCoins: m.startCoins },
+    stats: { spins: 0, slotWins: 0, bestSlotWin: 0, jackpots: 0, hands: 0, goodHands: 0, bestHand: 0, drops: 0, pusherPaid: 0, relics: 0, maxCoins: m.startCoins, bosses: 0 },
     missions: [],
     chipsPending: 0,
     events: [],
@@ -166,11 +173,19 @@ function settle(run: Run, m: Mods, mk: (charms: string[]) => Mods): void {
   run.zone = Math.max(1, run.zone - 1);
   run.zoneHeat = 0;
   run.completed++;
+  if (run.boss) {
+    run.stats.bosses++;
+    run.tickets += 2;
+    run.chipsPending += 3;
+    run.found++;
+    run.events.push(`${BOSSES.find((b) => b.id === run.boss)?.name ?? "The boss"} is beaten: +2 tickets, +3 chips, a relic`);
+    run.boss = null;
+  }
   run.events.push(`Quota of ${run.quota} paid.`);
   run.round++;
   run.tickets++;
   run.shopRerolls = 0;
-  if (CHARMS.every((c) => run.charms.includes(c.id))) return beginRound(run, mk(run.charms));
+  if (CHARMS.every((c) => run.charms.includes(c.id))) return beginRound(run, mk);
   run.draft = drawCharms(run.rng, run.charms, [], 3);
   run.shop = drawCharms(run.rng, run.charms, run.draft, 4);
   run.rerollsLeft = m.rerolls;
@@ -214,7 +229,14 @@ export function rerollShop(run: Run): boolean {
   return true;
 }
 
-export function beginRound(run: Run, m: Mods): void {
+/** Starts the round in `run.round`: a boss every third one, then quota, turns and free drops from the mods as they now are. */
+export function beginRound(run: Run, mk: (charms: string[]) => Mods): void {
+  run.boss = run.round % BOSS_EVERY === 0 ? (BOSSES[int(run.rng, BOSSES.length)] as { id: string }).id : null;
+  const m = mk(run.charms);
+  if (run.boss) {
+    const b = BOSSES.find((x) => x.id === run.boss);
+    run.events.push(`BOSS: ${b?.name ?? ""} - ${b?.text ?? ""}`);
+  }
   run.phase = "play";
   run.draft = [];
   run.quota = quotaFor(run.round, m);
@@ -226,7 +248,7 @@ export function pickCharm(run: Run, id: string, mk: (charms: string[]) => Mods):
   if (run.phase !== "draft" || !run.draft.includes(id)) return false;
   run.charms.push(id);
   run.shop = [];
-  beginRound(run, mk(run.charms));
+  beginRound(run, mk);
   return true;
 }
 
@@ -396,5 +418,7 @@ export function restoreRun(raw: unknown): Run | null {
   const zone = Math.min(5, Math.max(1, Math.floor(num0(o.zone) || 1)));
   const shop = Array.isArray(o.shop) ? o.shop.filter((c) => known.includes(c)) : [];
   const pour = Array.isArray(o.pour) ? o.pour.filter((k) => k === "coin" || k === "gold") : [];
-  return { ...(o as Run), tickets: Math.max(0, Math.floor(num0(o.tickets))), shop, shopRerolls: Math.max(0, Math.floor(num0(o.shopRerolls))), zone, zoneHeat: Math.max(0, num0(o.zoneHeat)), zoneIdle: Math.max(0, num0(o.zoneIdle)), pour, upgrades, events: [], found: 0, finished: o.finished === true, overReason: o.overReason ?? "" };
+  const bossId = BOSSES.some((b) => b.id === o.boss) ? (o.boss as string) : null;
+  const stats = { ...(o.stats as RunStats), bosses: Math.max(0, Math.floor(num0((o.stats as Partial<RunStats>).bosses))) };
+  return { ...(o as Run), stake: Math.min(5, Math.max(0, Math.floor(num0(o.stake)))), boss: bossId, stats, tickets: Math.max(0, Math.floor(num0(o.tickets))), shop, shopRerolls: Math.max(0, Math.floor(num0(o.shopRerolls))), zone, zoneHeat: Math.max(0, num0(o.zoneHeat)), zoneIdle: Math.max(0, num0(o.zoneIdle)), pour, upgrades, events: [], found: 0, finished: o.finished === true, overReason: o.overReason ?? "" };
 }

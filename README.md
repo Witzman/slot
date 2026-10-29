@@ -25,5 +25,8 @@ The engine is deterministic: a fixed 1 ms physics step, a seeded random generato
 
 Newest first. A short summary of what was added, no details.
 
+- **Bosses and stakes:** every third round is a boss round with its own rule and a higher quota; beating a boss pays tickets, chips and a relic and unlocks harder stakes.
+- **Charm shop:** run tickets, a shop next to the free charm call, per-symbol charms, 41 charms in all.
+- **Pusher zones:** a zone level that rises with payouts and multiplies them.
 - **Playable prototype:** slot machine, video poker and coin pusher in one run, quota rounds, charm draft, coin upgrades, tech tree, missions, achievements, relics you can combine, saved in the browser.
 - **Start:** the engine of the Pinball project (physics, rules, game flow, audio, renderer, storage) with a demo table.

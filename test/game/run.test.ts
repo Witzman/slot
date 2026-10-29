@@ -236,7 +236,7 @@ describe("a run", () => {
     const m = baseMods();
     m.freeDropsPerRound = 2;
     run.turnsLeft = 0;
-    beginRound(run, m);
+    beginRound(run, () => m);
     expect([run.turnsLeft, run.freeDrops]).toEqual([12, 2]);
   });
 });
@@ -648,3 +648,137 @@ describe("symbol charms", () => {
     expect(paid / n).toBeLessThan(2.5);
   });
 });
+
+describe("bosses", () => {
+  const meta = newMeta();
+  const mkBoss = (run: Run) => (c: string[]) => modsFor(meta, c, run.upgrades, run.boss, run.stake);
+
+  const toRound = (round: number, seed = 5): Run => {
+    const run = startRun(seed, baseMods());
+    run.round = round;
+    beginRound(run, mkBoss(run));
+    return run;
+  };
+
+  it("makes every third round a boss round and no other", async () => {
+    const { BOSS_EVERY } = await import("../../src/game/content");
+    expect(BOSS_EVERY).toBe(3);
+    for (const r of [1, 2, 4, 5, 7]) expect(toRound(r).boss, `round ${r}`).toBeNull();
+    for (const r of [3, 6, 9]) expect(toRound(r).boss, `round ${r}`).not.toBeNull();
+  });
+
+  it("announces the boss and raises the quota above the plain quota of that round", () => {
+    const run = toRound(3);
+    expect(drainEvents(run).some((e) => e.startsWith("BOSS"))).toBe(true);
+    expect(run.quota).toBeGreaterThan(quotaFor(3, baseMods()));
+  });
+
+  it("changes the mods by the rule of the boss, and only for that round", async () => {
+    const { BOSSES } = await import("../../src/game/content");
+    const plain = modsFor(meta, []);
+    const frozen = modsFor(meta, [], {}, "frozen");
+    expect([frozen.weights.wild, frozen.weights.coin]).toEqual([0, 0]);
+    expect(modsFor(meta, [], {}, "shark").pokerMul).toBe(0.5);
+    expect(modsFor(meta, [], {}, "slippery").pusherPayMul).toBeCloseTo(0.6);
+    expect(modsFor(meta, [], {}, "landlord").turns).toBe(plain.turns - 3);
+    expect(modsFor(meta, [], {}, "edge").slotWinMul).toBeCloseTo(0.7);
+    expect(modsFor(meta, [], {}, "collector").quotaMul).toBeCloseTo(1.5);
+    for (const b of BOSSES) expect(modsFor(meta, [], {}, b.id).quotaMul, b.id).toBeGreaterThan(1.2);
+    const run = toRound(3);
+    run.coins = 500;
+    run.turnsLeft = 0;
+    closeRound(run, mkBoss(run)(run.charms), mkBoss(run));
+    expect(run.boss).toBeNull();
+    expect(run.round).toBe(4);
+  });
+
+  it("rewards a beaten boss with tickets, chips and a relic to file, and counts it", () => {
+    const run = toRound(3);
+    run.coins = 500;
+    run.turnsLeft = 0;
+    const tickets = run.tickets;
+    closeRound(run, mkBoss(run)(run.charms), mkBoss(run));
+    expect([run.stats.bosses, run.tickets - tickets, run.chipsPending, run.found]).toEqual([1, 3, 3, 1]);
+  });
+
+  it("gives a missed boss round no reward and ends the run", () => {
+    const run = toRound(3);
+    run.coins = 1;
+    run.turnsLeft = 0;
+    closeRound(run, mkBoss(run)(run.charms), mkBoss(run));
+    expect([run.phase, run.stats.bosses, run.found]).toEqual(["over", 0, 0]);
+  });
+
+  it("restores an old save without a boss, and drops an unknown boss id", async () => {
+    const { restoreRun } = await import("../../src/game/run");
+    const raw = JSON.parse(JSON.stringify(startRun(1, baseMods())));
+    delete raw.boss;
+    delete raw.stake;
+    delete raw.stats.bosses;
+    expect(restoreRun(raw)).toMatchObject({ boss: null, stake: 0, stats: { bosses: 0 } });
+    raw.boss = "nobody";
+    raw.stake = 9;
+    expect(restoreRun(raw)).toMatchObject({ boss: null, stake: 5 });
+    raw.boss = "shark";
+    expect(restoreRun(raw)?.boss).toBe("shark");
+  });
+});
+
+describe("stakes", () => {
+  it("raise the quota by 12% each and take a turn from stake 3 on", () => {
+    const meta = newMeta();
+    const plain = modsFor(meta, []);
+    expect(modsFor(meta, [], {}, null, 1).quotaMul).toBeCloseTo(1.12);
+    expect(modsFor(meta, [], {}, null, 2).turns).toBe(plain.turns);
+    expect(modsFor(meta, [], {}, null, 3).turns).toBe(plain.turns - 1);
+    expect(quotaFor(1, modsFor(meta, [], {}, null, 5))).toBeGreaterThan(quotaFor(1, plain));
+  });
+
+  it("pay more chips, and a boss beaten at the top unlocked stake unlocks the next", () => {
+    const meta = newMeta();
+    const run = startRun(1, baseMods(), 0);
+    run.completed = 3;
+    run.stats.bosses = 1;
+    expect(finishRun(meta, run)).toBe(10);
+    expect(meta.maxStake).toBe(1);
+    const low = startRun(1, baseMods(), 0);
+    low.completed = 3;
+    low.stats.bosses = 1;
+    finishRun(meta, low); // stake 0 is below the top: nothing new
+    expect(meta.maxStake).toBe(1);
+    const high = startRun(1, baseMods(), 1);
+    high.completed = 3;
+    high.stats.bosses = 1;
+    expect(finishRun(meta, high)).toBe(Math.floor(10 * 1.25));
+    expect(meta.maxStake).toBe(2);
+  });
+
+  it("does not unlock a stake without a boss, and stops at the maximum", () => {
+    const meta = newMeta();
+    const run = startRun(1, baseMods(), 0);
+    run.completed = 2;
+    finishRun(meta, run);
+    expect(meta.maxStake).toBe(0);
+    meta.maxStake = 5;
+    const top = startRun(1, baseMods(), 5);
+    top.stats.bosses = 2;
+    finishRun(meta, top);
+    expect(meta.maxStake).toBe(5);
+  });
+
+  it("are saved with the meta, bounded", () => {
+    expect(restoreRun_meta({ v: 1, maxStake: 3 }).maxStake).toBe(3);
+    expect(restoreRun_meta({ v: 1, maxStake: 99 }).maxStake).toBe(5);
+    expect(restoreRun_meta({ v: 1 }).maxStake).toBe(0);
+  });
+
+  it("have achievements for the bosses and the stakes", () => {
+    const meta = newMeta();
+    meta.maxStake = 1;
+    const run = startRun(1, baseMods());
+    run.stats.bosses = 1;
+    expect(checkAchievements(meta, run).map((a) => a.id)).toEqual(expect.arrayContaining(["boss1", "stake1"]));
+  });
+});
+
+const restoreRun_meta = restoreMeta;

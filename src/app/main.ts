@@ -30,8 +30,8 @@ const START_GRID: Sym[][] = [["cherry", "bell", "lemon"], ["bar", "seven", "bar"
 async function boot(): Promise<void> {
   let meta: Meta = await loadMeta(store);
   let run: Run | null = await loadRun(store);
-  const ui: UI = { tab: "play", slotBet: 1, pokerBet: 1, busy: false, grid: START_GRID, winCells: new Set(), slotNote: "", pokerNote: "", pusherNote: "", overChips: 0, muted: false, picked: [], craftNote: "" };
-  const mk = (charms: string[]) => modsFor(meta, charms, run?.upgrades ?? {});
+  const ui: UI = { tab: "play", slotBet: 1, pokerBet: 1, busy: false, grid: START_GRID, winCells: new Set(), slotNote: "", pokerNote: "", pusherNote: "", overChips: 0, muted: false, picked: [], craftNote: "", stake: 0 };
+  const mk = (charms: string[]) => modsFor(meta, charms, run?.upgrades ?? {}, run?.boss ?? null, run?.stake ?? 0);
   const mods = () => mk(run?.charms ?? []);
   const view = (): View => ({ run, meta, mods: mods(), ui });
   let aim = 5;
@@ -95,6 +95,7 @@ async function boot(): Promise<void> {
       for (const e of drainEvents(run)) {
         toast(e);
         if (e.startsWith("Zone ")) sfx.gold();
+        if (e.startsWith("BOSS")) sfx.lose();
       }
       if (run.phase === "over" && !run.finished) {
         ui.overChips = finishRun(meta, run);
@@ -114,7 +115,8 @@ async function boot(): Promise<void> {
 
   function newRun(): void {
     const seed = (Date.now() ^ Math.imul(meta.seedCounter++, 2654435761)) >>> 0;
-    run = startRun(seed, mk([]));
+    ui.stake = Math.min(ui.stake, meta.maxStake);
+    run = startRun(seed, modsFor(meta, [], {}, null, ui.stake), ui.stake);
     lastPhase = "play";
     ui.slotNote = ui.pokerNote = ui.pusherNote = "";
     ui.winCells = new Set();
@@ -183,6 +185,11 @@ async function boot(): Promise<void> {
       case "mute":
         ui.muted = !isMuted();
         setMuted(ui.muted);
+        render();
+        break;
+      case "stake":
+        ui.stake = Math.min(meta.maxStake, Math.max(0, ui.stake + Number(value)));
+        sfx.click();
         render();
         break;
       case "newrun":

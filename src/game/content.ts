@@ -160,3 +160,26 @@ export const UPGRADES: readonly Upgrade[] = [
 ];
 
 export const upgradeCost = (u: Upgrade, level: number): number => Math.ceil(u.base * Math.pow(1.5, level));
+
+export interface Boss {
+  id: string;
+  name: string;
+  text: string;
+  effect: Effect;
+}
+
+/** Every third round is a boss round: one of these rules for that round, and a higher quota. */
+export const BOSS_EVERY = 3;
+export const BOSSES: readonly Boss[] = [
+  { id: "collector", name: "The Collector", text: "Quota x1.5.", effect: (m) => void (m.quotaMul *= 1.5) },
+  { id: "frozen", name: "Frozen Reels", text: "No wilds, no coin scatters. Quota x1.3.", effect: (m) => void ((m.weights.wild = 0), (m.weights.coin = 0), (m.quotaMul *= 1.3)) },
+  { id: "shark", name: "Card Shark", text: "Poker pays half. Quota x1.3.", effect: (m) => void ((m.pokerMul *= 0.5), (m.quotaMul *= 1.3)) },
+  { id: "slippery", name: "Slippery Shelf", text: "The pusher pays 60%. Quota x1.3.", effect: (m) => void ((m.pusherPayMul *= 0.6), (m.quotaMul *= 1.3)) },
+  { id: "landlord", name: "The Landlord", text: "3 turns fewer. Quota x1.3.", effect: (m) => void ((m.turns = Math.max(4, m.turns - 3)), (m.quotaMul *= 1.3)) },
+  { id: "edge", name: "House Edge", text: "Slot wins pay 70%. Quota x1.3.", effect: (m) => void ((m.slotWinMul *= 0.7), (m.quotaMul *= 1.3)) },
+];
+
+/** Each stake adds this much quota; from STAKE_TURNS on one turn less. */
+export const STAKE_QUOTA = 0.12;
+export const STAKE_TURNS = 3;
+export const MAX_STAKE = 5;
