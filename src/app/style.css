@@ -125,3 +125,9 @@ button.relic { text-align: left; }
 nav button { padding: 8px 4px; }
 [hidden] { display: none !important; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+
+.card-box.wide { max-width: 860px; }
+.charm.uncommon { border-color: var(--teal); }
+.charm.rare { border-color: var(--pink); box-shadow: 0 0 14px rgba(255, 61, 129, 0.35); }
+.charm em { font-style: normal; font-size: 0.75rem; color: var(--gold); text-transform: uppercase; letter-spacing: 0.06em; }
+@media (min-width: 700px) { .card-box.wide .charms { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); } }

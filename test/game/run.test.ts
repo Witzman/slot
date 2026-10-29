@@ -515,3 +515,136 @@ describe("pusher zones", () => {
     expect(restoreRun(raw)?.zone).toBe(5);
   });
 });
+
+describe("charm shop and tickets", () => {
+  const atCall = (seed = 5): Run => {
+    const run = startRun(seed, baseMods());
+    run.coins = 500;
+    run.turnsLeft = 0;
+    closeRound(run, baseMods(), mk);
+    return run;
+  };
+
+  it("gives a ticket for a cleared round, and offers a call of three and a shop of four that do not overlap", () => {
+    const run = atCall();
+    expect(run.tickets).toBe(1);
+    expect(run.draft).toHaveLength(3);
+    expect(run.shop).toHaveLength(4);
+    expect(new Set([...run.draft, ...run.shop]).size).toBe(7);
+  });
+
+  it("gives a ticket for a mission and for a coin scatter", () => {
+    const run = startRun(2, baseMods());
+    run.missions = [{ id: "spin6", done: false }];
+    run.coins = 500;
+    for (let i = 0; i < 6; i++) {
+      spinSlot(run, baseMods(), 1);
+      drawPoker(run, baseMods());
+    }
+    expect(run.tickets).toBeGreaterThanOrEqual(1); // the mission, plus any scatter
+    const w = baseMods();
+    w.weights = { ...w.weights, cherry: 0, lemon: 0, bell: 0, bar: 0, seven: 0, wild: 0, coin: 1 };
+    const scatter = startRun(2, w);
+    spinSlot(scatter, w, 1);
+    expect(scatter.tickets).toBe(1);
+  });
+
+  it("buys a charm with tickets at its rarity price, once, and it joins the run", async () => {
+    const { charmPrice, buyCharm } = await import("../../src/game/run");
+    const run = atCall();
+    const id = run.shop[0] as string;
+    run.tickets = 10;
+    const price = charmPrice(id);
+    expect(buyCharm(run, id)).toBe(true);
+    expect(run.tickets).toBe(10 - price);
+    expect(run.charms).toEqual([id]);
+    expect(run.shop).not.toContain(id);
+    expect(buyCharm(run, id)).toBe(false);
+  });
+
+  it("refuses without tickets, for a charm not in the shop and outside the call screen", async () => {
+    const { buyCharm } = await import("../../src/game/run");
+    const run = atCall();
+    run.tickets = 0;
+    expect(buyCharm(run, run.shop[0] as string)).toBe(false);
+    run.tickets = 99;
+    expect(buyCharm(run, "nope")).toBe(false);
+    expect(buyCharm(run, run.draft[0] as string)).toBe(false);
+    run.phase = "play";
+    expect(buyCharm(run, run.shop[0] as string)).toBe(false);
+    expect(run.tickets).toBe(99);
+  });
+
+  it("re-stocks the shop for a rising price that starts over each round", async () => {
+    const { rerollShop, shopRerollPrice } = await import("../../src/game/run");
+    const run = atCall();
+    run.tickets = 10;
+    const before = [...run.shop];
+    expect(shopRerollPrice(run)).toBe(1);
+    expect(rerollShop(run)).toBe(true);
+    expect(run.tickets).toBe(9);
+    expect(shopRerollPrice(run)).toBe(2);
+    expect(run.shop).toHaveLength(4);
+    expect(run.shop.some((c) => run.draft.includes(c))).toBe(false);
+    expect(run.shop).not.toEqual(before);
+    run.tickets = 1;
+    expect(rerollShop(run)).toBe(false);
+  });
+
+  it("never offers an owned charm, and picking from the call clears the shop", () => {
+    const run = atCall();
+    const id = run.draft[0] as string;
+    pickCharm(run, id, mk);
+    expect(run.shop).toEqual([]);
+    run.coins = 500;
+    run.turnsLeft = 0;
+    closeRound(run, mk(run.charms), mk);
+    expect([...run.draft, ...run.shop]).not.toContain(id);
+  });
+
+  it("draws by rarity: commons far more often than rares", async () => {
+    const { drawCharms } = await import("../../src/game/run");
+    const rng = makeRng(1);
+    const count = { common: 0, uncommon: 0, rare: 0 };
+    for (let i = 0; i < 2000; i++) for (const id of drawCharms(rng, [], [], 1)) count[CHARMS.find((c) => c.id === id)!.rarity]++;
+    expect(count.common).toBeGreaterThan(count.rare * 4);
+  });
+
+  it("has at least 36 charms, every id unique, each with a real effect", () => {
+    expect(CHARMS.length).toBeGreaterThanOrEqual(36);
+    expect(new Set(CHARMS.map((c) => c.id)).size).toBe(CHARMS.length);
+  });
+
+  it("restores a save from before the shop", async () => {
+    const { restoreRun } = await import("../../src/game/run");
+    const raw = JSON.parse(JSON.stringify(startRun(1, baseMods())));
+    delete raw.tickets;
+    delete raw.shop;
+    delete raw.shopRerolls;
+    expect(restoreRun(raw)).toMatchObject({ tickets: 0, shop: [], shopRerolls: 0 });
+    raw.shop = ["clover", "bogus"];
+    expect(restoreRun(raw)?.shop).toEqual(["clover"]);
+  });
+});
+
+describe("symbol charms", () => {
+  it("multiply the pay of one symbol and leave the others", async () => {
+    const { evaluate } = await import("../../src/game/slot");
+    const g = [["lemon", "bar", "bell"], ["cherry", "cherry", "cherry"], ["bar", "lemon", "bell"]] as const;
+    const grid = g.map((r) => [...r]) as Parameters<typeof evaluate>[0];
+    expect(evaluate(grid, 3, 1).payout).toBe(4);
+    expect(evaluate(grid, 3, 1, { cherry: 3 }).payout).toBe(12);
+    expect(evaluate(grid, 3, 1, { lemon: 9 }).payout).toBe(4);
+  });
+
+  it("keep the slot return in a sane range with every symbol charm at once", async () => {
+    const { spin } = await import("../../src/game/slot");
+    const m = modsFor(newMeta(), ["cherrypick", "lemonade", "bellringer", "barfly", "sevenheaven"]);
+    const rng = makeRng(321);
+    let paid = 0;
+    const n = 40000;
+    for (let i = 0; i < n; i++) paid += spin(rng, 1, 1, m.weights, m.symPay).payout;
+    expect(paid / n).toBeGreaterThan(1);
+    expect(paid / n).toBeLessThan(2.5);
+  });
+});

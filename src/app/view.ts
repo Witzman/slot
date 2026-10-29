@@ -2,7 +2,7 @@ import { ACHIEVEMENTS, type Meta } from "../game/meta";
 import { CHARMS, RELICS, TECH, UPGRADES, upgradeCost } from "../game/content";
 import type { Mods } from "../game/mods";
 import { HAND_LABEL, HAND_ORDER, type HandName, classify, rank, suit } from "../game/poker";
-import { type Run, ZONE_HEAT, canClose, zoneMul } from "../game/run";
+import { type Run, ZONE_HEAT, canClose, charmPrice, quotaFor, shopRerollPrice, zoneMul } from "../game/run";
 import { missionDef, missionProgress } from "../game/missions";
 import { COLS, LINES, ROWS, type Sym } from "../game/slot";
 
@@ -64,7 +64,8 @@ export function hud(v: View): string {
         ? `<div class="stat"><span>Coins</span><strong class="gold">${r.coins}</strong></div>
            <div class="stat"><span>Round</span><strong>${r.round}</strong></div>
            <div class="stat wide"><span>Quota ${quota} <em>(${pct}%)</em></span><div class="bar"><div style="width:${pct}%"></div></div><div class="pips" title="turns left">${turns}</div></div>
-           <div class="stat"><span>Free drops</span><strong>${r.freeDrops}</strong></div>`
+           <div class="stat"><span>Free drops</span><strong>${r.freeDrops}</strong></div>
+           <div class="stat"><span>Tickets</span><strong>${r.tickets}</strong></div>`
         : `<div class="stat wide"><span>No run in progress</span></div>`
     }
     <div class="stat"><span>Chips</span><strong class="teal">${v.meta.chips}</strong></div>
@@ -229,10 +230,19 @@ export function overlay(v: View): string {
       <button class="big" data-act="newrun">Start run</button></div></div>`;
   }
   if (run.phase === "draft") {
-    const cards = run.draft.map((id) => CHARMS.find((c) => c.id === id)).filter((c) => c !== undefined).map((c) => `<button class="charm" data-act="charm" data-v="${c.id}"><strong>${esc(c.name)}</strong><span>${esc(c.text)}</span></button>`).join("");
-    return `<div class="modal"><div class="card-box"><h2>Round ${run.round - 1} cleared</h2><p>Quota paid. Choose a charm for this run.</p><div class="charms">${cards}</div>
-      ${run.rerollsLeft > 0 ? `<button data-act="reroll">Re-draw (${run.rerollsLeft} left)</button>` : ""}
-      <p class="hint">Coins: ${run.coins} · next quota ${Math.round(run.quota)}</p></div></div>`;
+    const find = (id: string) => CHARMS.find((c) => c.id === id);
+    const cards = run.draft.map(find).filter((c) => c !== undefined).map((c) => `<button class="charm ${c.rarity}" data-act="charm" data-v="${c.id}"><strong>${esc(c.name)}</strong><span>${esc(c.text)}</span><em>${c.rarity}</em></button>`).join("");
+    const shop = run.shop.map(find).filter((c) => c !== undefined).map((c) => {
+      const price = charmPrice(c.id);
+      return `<button class="charm ${c.rarity}" data-act="buycharm" data-v="${c.id}" ${run.tickets >= price ? "" : "disabled"}><strong>${esc(c.name)}</strong><span>${esc(c.text)}</span><em>${c.rarity} · ${price} tickets</em></button>`;
+    }).join("");
+    const rr = shopRerollPrice(run);
+    return `<div class="modal"><div class="card-box wide"><h2>Round ${run.round - 1} cleared</h2><p>Quota paid. The phone rings: take one charm for free.</p><div class="charms">${cards}</div>
+      ${run.rerollsLeft > 0 ? `<button data-act="reroll">Re-draw the call (${run.rerollsLeft} left)</button>` : ""}
+      <h3>Shop <span class="teal">${run.tickets} tickets</span></h3>
+      <div class="charms">${shop || '<p class="hint">Sold out.</p>'}</div>
+      <button data-act="rerollshop" ${run.tickets >= rr ? "" : "disabled"}>New stock (${rr} ticket${rr > 1 ? "s" : ""})</button>
+      <p class="hint">Coins: ${run.coins} · next quota ${quotaFor(run.round, v.mods)} · tickets come from rounds, missions and coin scatters</p></div></div>`;
   }
   if (run.phase === "over") {
     const why = run.overReason === "bust" ? "You ran out of coins." : `You missed the quota of ${run.quota} with ${run.coins} coins.`;

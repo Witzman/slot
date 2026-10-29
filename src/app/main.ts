@@ -2,7 +2,7 @@ import "./style.css";
 import { type Meta, buyTech, combine, checkAchievements, fileRelic, finishRun, modsFor } from "../game/meta";
 import { RELICS, CHARMS } from "../game/content";
 import { HAND_LABEL } from "../game/poker";
-import { type Run, type Refusal, buyUpgrade, closeRound, drainEvents, drawPoker, dropAt, holdCard, pickCharm, rerollDraft, spinSlot, startRun, tickPusher } from "../game/run";
+import { type Run, type Refusal, buyCharm, buyUpgrade, closeRound, drainEvents, drawPoker, dropAt, holdCard, pickCharm, rerollDraft, rerollShop, spinSlot, startRun, tickPusher } from "../game/run";
 import { type Sym, SYMS, COLS, ROWS } from "../game/slot";
 import { localStore } from "../storage";
 import { createPusherCanvas } from "./pusher-view";
@@ -223,6 +223,19 @@ async function boot(): Promise<void> {
         if (run && pickCharm(run, value, mk)) {
           toast(`Charm: ${CHARMS.find((c) => c.id === value)?.name ?? value}`);
           sfx.win();
+          changed();
+        }
+        break;
+      case "buycharm":
+        if (run && buyCharm(run, value)) {
+          toast(`Bought: ${CHARMS.find((c) => c.id === value)?.name ?? value}`);
+          sfx.gold();
+          changed();
+        }
+        break;
+      case "rerollshop":
+        if (run && rerollShop(run)) {
+          sfx.click();
           changed();
         }
         break;

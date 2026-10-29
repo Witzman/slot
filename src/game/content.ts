@@ -1,4 +1,5 @@
 import type { Effect, Mods } from "./mods";
+import type { Sym } from "./slot";
 
 export interface TechNode {
   id: string;
@@ -39,28 +40,69 @@ export const TECH: readonly TechNode[] = [
   { id: "pmul", branch: "pusher", name: "Deep Pockets", text: "Pusher payouts pay 25% more.", cost: 15, requires: ["free1"], effect: (m) => void (m.pusherPayMul *= 1.25) },
 ];
 
+export type Rarity = "common" | "uncommon" | "rare";
+export const RARITY_WEIGHT: Record<Rarity, number> = { common: 70, uncommon: 25, rare: 5 };
+/** Tickets a charm costs in the shop. */
+export const RARITY_PRICE: Record<Rarity, number> = { common: 2, uncommon: 4, rare: 7 };
+
 export interface Charm {
   id: string;
   name: string;
   text: string;
+  rarity: Rarity;
   effect: Effect;
 }
 
-/** Run charms: offered three at a time after each round, gone when the run ends. */
+const ch = (id: string, name: string, rarity: Rarity, text: string, effect: Effect): Charm => ({ id, name, text, rarity, effect });
+const symPay = (sym: Sym, k: number): Effect => (m) => void (m.symPay[sym] *= k);
+
+/** Run charms: one free pick of three after each round (the phone call), the rest bought with tickets; gone when the run ends. */
 export const CHARMS: readonly Charm[] = [
-  { id: "clover", name: "Four-Leaf Clover", text: "Slot wins pay 25% more.", effect: (m) => void (m.slotWinMul *= 1.25) },
-  { id: "sharp", name: "Card Sharp", text: "Jacks or better pays 2.", effect: (m) => void (m.pokerPay.jacks = Math.max(m.pokerPay.jacks, 2)) },
-  { id: "extra", name: "Borrowed Time", text: "+2 turns every round.", effect: (m) => void (m.turns += 2) },
-  { id: "goldrush", name: "Gold Rush", text: "Many more gold coins on the pusher.", effect: (m) => void (m.goldChance += 0.12) },
-  { id: "bank", name: "Piggy Bank", text: "Keep 10% of your coins as interest each round (up to 15).", effect: (m) => void (m.interest += 0.1) },
-  { id: "discount", name: "Bribed Inspector", text: "Quotas are 15% lower.", effect: (m) => void (m.quotaMul *= 0.85) },
-  { id: "drop", name: "Spare Change", text: "+2 free pusher drops every round.", effect: (m) => void (m.freeDropsPerRound += 2) },
-  { id: "twin", name: "Twin Draw", text: "Draw twice in every poker hand.", effect: (m) => void (m.pokerDraws = Math.max(m.pokerDraws, 2)) },
-  { id: "jackpot", name: "Jackpot Fever", text: "More sevens on the reels.", effect: (m) => void (m.weights.seven += 1) },
-  { id: "magnet", name: "Scatter Magnet", text: "More coin scatters on the reels.", effect: (m) => void (m.weights.coin += 2) },
-  { id: "pusher", name: "Greasy Plate", text: "Pusher payouts pay 30% more.", effect: (m) => void (m.pusherPayMul *= 1.3) },
-  { id: "streak", name: "Hot Streak", text: "Each pusher zone pays 10% more.", effect: (m) => void (m.zoneStep += 0.1) },
-  { id: "wildcard", name: "Wild Card", text: "More wild stars on the reels.", effect: (m) => void (m.weights.wild += 2) },
+  // slot
+  ch("clover", "Four-Leaf Clover", "common", "Slot wins pay 25% more.", (m) => void (m.slotWinMul *= 1.25)),
+  ch("jackpot", "Jackpot Fever", "uncommon", "More sevens on the reels.", (m) => void (m.weights.seven += 1)),
+  ch("magnet", "Scatter Magnet", "common", "More coin scatters on the reels.", (m) => void (m.weights.coin += 2)),
+  ch("wildcard", "Wild Card", "uncommon", "More wild stars on the reels.", (m) => void (m.weights.wild += 2)),
+  ch("cherrypick", "Cherry Picker", "uncommon", "Cherry lines pay 3 times.", symPay("cherry", 3)),
+  ch("lemonade", "Lemonade Stand", "common", "Lemon lines pay 2 times.", symPay("lemon", 2)),
+  ch("bellringer", "Bell Ringer", "common", "Bell lines pay 2 times.", symPay("bell", 2)),
+  ch("barfly", "Bar Fly", "uncommon", "BAR lines pay 2 times.", symPay("bar", 2)),
+  ch("sevenheaven", "Seven Heaven", "rare", "Seven lines pay 1.5 times.", symPay("seven", 1.5)),
+  ch("triplewild", "Triple Wild", "rare", "Many more wild stars on the reels.", (m) => void (m.weights.wild += 3)),
+  ch("orchard", "Cherry Orchard", "common", "More cherries on the reels.", (m) => void (m.weights.cherry += 3)),
+  ch("belltower", "Bell Tower", "uncommon", "More bells on the reels.", (m) => void (m.weights.bell += 2)),
+  ch("highroll", "High Roller", "uncommon", "Slot max bet +2.", (m) => void (m.slotMaxBet += 2)),
+  ch("longlines", "Long Lines", "uncommon", "Slot plays at least 3 paylines.", (m) => void (m.slotLines = Math.max(m.slotLines, 3))),
+  ch("fulllines", "Full Lines", "rare", "Slot plays 5 paylines.", (m) => void (m.slotLines = 5)),
+  // poker
+  ch("sharp", "Card Sharp", "common", "Jacks or better pays 2.", (m) => void (m.pokerPay.jacks = Math.max(m.pokerPay.jacks, 2))),
+  ch("twin", "Twin Draw", "rare", "Draw twice in every poker hand.", (m) => void (m.pokerDraws = Math.max(m.pokerDraws, 2))),
+  ch("pairbonus", "Pair Bonus", "common", "Two pair pays 3.", (m) => void (m.pokerPay.twoPair = Math.max(m.pokerPay.twoPair, 3))),
+  ch("threes", "Three's Company", "common", "Three of a kind pays 4.", (m) => void (m.pokerPay.three = Math.max(m.pokerPay.three, 4))),
+  ch("flushfever", "Flush Fever", "uncommon", "Flush pays 8, straight 5.", (m) => void ((m.pokerPay.flush = Math.max(m.pokerPay.flush, 8)), (m.pokerPay.straight = Math.max(m.pokerPay.straight, 5)))),
+  ch("fulltable", "Full Table", "uncommon", "Full house pays 12, four of a kind 30.", (m) => void ((m.pokerPay.fullHouse = Math.max(m.pokerPay.fullHouse, 12)), (m.pokerPay.four = Math.max(m.pokerPay.four, 30)))),
+  ch("royalty", "Royal Treatment", "rare", "Royal flush pays 500, straight flush 100.", (m) => void ((m.pokerPay.royal = Math.max(m.pokerPay.royal, 500)), (m.pokerPay.straightFlush = Math.max(m.pokerPay.straightFlush, 100)))),
+  ch("highstakes", "High Stakes", "common", "Free poker hands can go up to stake 5.", (m) => void (m.pokerMaxBet = Math.max(m.pokerMaxBet, 5))),
+  ch("stackeddeck", "Stacked Deck", "uncommon", "Poker wins pay 25% more.", (m) => void (m.pokerMul *= 1.25)),
+  // pusher
+  ch("goldrush", "Gold Rush", "uncommon", "Many more gold coins on the pusher.", (m) => void (m.goldChance += 0.12)),
+  ch("pusher", "Greasy Plate", "uncommon", "Pusher payouts pay 30% more.", (m) => void (m.pusherPayMul *= 1.3)),
+  ch("drop", "Spare Change", "common", "+2 free pusher drops every round.", (m) => void (m.freeDropsPerRound += 2)),
+  ch("streak", "Hot Streak", "uncommon", "Each pusher zone pays 10% more.", (m) => void (m.zoneStep += 0.1)),
+  ch("prizehunter", "Prize Hunter", "common", "Prizes drop more often.", (m) => void (m.prizeChance += 0.06)),
+  ch("goldleaf", "Gold Leaf", "common", "More gold coins on the pusher.", (m) => void (m.goldChance += 0.06)),
+  ch("deepshelf", "Deep Shelf", "common", "Pusher payouts pay 15% more.", (m) => void (m.pusherPayMul *= 1.15)),
+  ch("zonedance", "Zone Dance", "uncommon", "The pusher can reach one zone higher (up to 5).", (m) => void (m.zoneMax = Math.min(5, m.zoneMax + 1))),
+  // economy
+  ch("extra", "Borrowed Time", "uncommon", "+2 turns every round.", (m) => void (m.turns += 2)),
+  ch("bank", "Piggy Bank", "uncommon", "Keep 10% of your coins as interest each round (up to 15).", (m) => void (m.interest += 0.1)),
+  ch("discount", "Bribed Inspector", "uncommon", "Quotas are 15% lower.", (m) => void (m.quotaMul *= 0.85)),
+  ch("taxhaven", "Tax Haven", "uncommon", "Another 10% interest each round.", (m) => void (m.interest += 0.1)),
+  ch("overtime", "Overtime Pay", "common", "+1 turn every round.", (m) => void (m.turns += 1)),
+  ch("landlord", "Landlord's Friend", "uncommon", "Quotas are 10% lower.", (m) => void (m.quotaMul *= 0.9)),
+  ch("opinion", "Second Opinion", "common", "Re-draw the charm choice once per round.", (m) => void (m.rerolls += 1)),
+  ch("timewarp", "Time Warp", "rare", "+3 turns every round.", (m) => void (m.turns += 3)),
+  ch("loanshark", "Loan Shark", "uncommon", "+3 free pusher drops every round, quotas 10% higher.", (m) => void ((m.freeDropsPerRound += 3), (m.quotaMul *= 1.1))),
 ];
 
 export interface Relic {
