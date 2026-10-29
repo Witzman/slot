@@ -16,7 +16,9 @@ export const CHERRY_PAIR = 1;
 /** Free coin drops for the pusher when this many scatters are on the grid. */
 export const SCATTER_MIN = 3;
 
-export const BASE_WEIGHTS: Record<Sym, number> = { cherry: 7, lemon: 6, bell: 4, bar: 3, seven: 2, wild: 2, coin: 2 };
+export const BASE_WEIGHTS: Record<Sym, number> = { cherry: 7, lemon: 6, bell: 4, bar: 3, seven: 2, wild: 10, coin: 2 };
+/** The wild star shows on the middle reel only: on all three it substituted for everything and each extra star was worth +0.4 return (balance run, #9). */
+export const WILD_COLS: readonly number[] = [1];
 
 /** Cell indices (row, col) of each payline; a bet unlocks them in this order. */
 export const LINES: readonly (readonly [number, number][])[] = [
@@ -48,10 +50,11 @@ export interface SlotResult {
 
 export function spinGrid(rng: Rng, weights: Record<Sym, number>): Sym[][] {
   const w = SYMS.map((s) => weights[s]);
+  const noWild = SYMS.map((s) => (s === "wild" ? 0 : weights[s]));
   const grid: Sym[][] = [];
   for (let r = 0; r < ROWS; r++) {
     const row: Sym[] = [];
-    for (let c = 0; c < COLS; c++) row.push(SYMS[weighted(rng, w)] as Sym);
+    for (let c = 0; c < COLS; c++) row.push(SYMS[weighted(rng, WILD_COLS.includes(c) ? w : noWild)] as Sym);
     grid.push(row);
   }
   return grid;

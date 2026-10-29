@@ -36,7 +36,7 @@ export interface Mods {
 
 export function baseMods(): Mods {
   return {
-    startCoins: 40,
+    startCoins: 50,
     turns: 12,
     slotLines: 1,
     slotMaxBet: 3,

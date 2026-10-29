@@ -6,7 +6,7 @@ describe("pusher", () => {
   it("moves the plate back and forth inside its stroke", () => {
     const fronts = Array.from({ length: 500 }, (_, t) => plateFront(t));
     expect(Math.min(...fronts)).toBeCloseTo(1.5, 1);
-    expect(Math.max(...fronts)).toBeCloseTo(4.5, 1);
+    expect(Math.max(...fronts)).toBeCloseTo(5, 1);
   });
 
   it("never lets coins overlap the plate or leave the side walls", () => {

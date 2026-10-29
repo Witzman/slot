@@ -75,11 +75,16 @@ export interface Run {
   finished: boolean;
 }
 
-export const QUOTA_BASE = 15;
-export const QUOTA_GROWTH = 1.35;
+export const QUOTA_BASE = 14;
+/** Growth per round up to QUOTA_BREAK, and from there on: the early game is forgiving, the late game cannot be farmed for ever (balance run, #9). */
+export const QUOTA_GROWTH = 1.3;
+export const QUOTA_BREAK = 5;
+export const QUOTA_GROWTH_LATE = 1.7;
 
 export function quotaFor(round: number, m: Mods): number {
-  return Math.max(1, Math.round(QUOTA_BASE * Math.pow(QUOTA_GROWTH, round - 1) * m.quotaMul));
+  const early = Math.min(round, QUOTA_BREAK) - 1;
+  const late = Math.max(0, round - QUOTA_BREAK);
+  return Math.max(1, Math.round(QUOTA_BASE * Math.pow(QUOTA_GROWTH, early) * Math.pow(QUOTA_GROWTH_LATE, late) * m.quotaMul));
 }
 
 export function startRun(seed: number, m: Mods, stake = 0): Run {
@@ -302,7 +307,7 @@ export function rerollDraft(run: Run): boolean {
   return true;
 }
 
-/** One pull: pay the bet, spin the reels, pour the win on the pusher and deal a free poker hand of the same stake. */
+/** One pull: pay the bet, spin the reels, pour the win on the pusher and deal a free poker hand with the same stake (bet times lines, up to the poker max). */
 export function spinSlot(run: Run, m: Mods, bet: number): Refusal | SlotResult {
   const no = canAct(run);
   if (no) return no;
@@ -322,7 +327,7 @@ export function spinSlot(run: Run, m: Mods, bet: number): Refusal | SlotResult {
   s.slotWins += res.wins.length;
   s.jackpots += res.wins.filter((w) => w.sym === "seven").length;
   if (res.payout > s.bestSlotWin) s.bestSlotWin = res.payout;
-  deal(run.poker, run.rng, Math.min(bet, m.pokerMaxBet), m.pokerDraws);
+  deal(run.poker, run.rng, Math.min(cost, m.pokerMaxBet), m.pokerDraws);
   updateMissions(run);
   return res;
 }
