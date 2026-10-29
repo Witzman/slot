@@ -46,6 +46,7 @@ export function updateMissions(run: Run): void {
     if (!def || m.done || run.stats[def.key] < def.target) continue;
     m.done = true;
     run.chipsPending += def.reward;
+    run.tickets++;
     run.events.push(`Mission done: ${def.text} (+${def.reward} chips)`);
   }
 }

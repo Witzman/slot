@@ -1,8 +1,8 @@
-import { CHARMS, UPGRADES, upgradeCost } from "./content";
+import { CHARMS, RARITY_PRICE, RARITY_WEIGHT, UPGRADES, upgradeCost } from "./content";
 import type { Mods } from "./mods";
 import { type HandName, HAND_ORDER, type PokerState, classify, deal, draw, freshPoker, payFor, toggleHold } from "./poker";
 import { type CoinKind, type Pusher, W, dropCoin, newPusher, stepMany } from "./pusher";
-import { type Rng, makeRng, next, shuffle } from "./rng";
+import { type Rng, makeRng, next, weighted } from "./rng";
 import { type SlotResult, spin } from "./slot";
 import { type MissionState, drawMissions, updateMissions } from "./missions";
 
@@ -36,6 +36,12 @@ export interface Run {
   upgrades: Record<string, number>;
   phase: RunPhase;
   draft: string[];
+  /** run tickets: earned by rounds, missions and scatters, spent on charms in the shop */
+  tickets: number;
+  /** charms for sale after this round */
+  shop: string[];
+  /** shop re-rolls bought this round */
+  shopRerolls: number;
   rerollsLeft: number;
   poker: PokerState;
   pusher: Pusher;
@@ -81,6 +87,9 @@ export function startRun(seed: number, m: Mods): Run {
     upgrades: {},
     phase: "play",
     draft: [],
+    tickets: 0,
+    shop: [],
+    shopRerolls: 0,
     rerollsLeft: m.rerolls,
     poker: freshPoker(),
     pusher: newPusher(rng),
@@ -159,11 +168,50 @@ function settle(run: Run, m: Mods, mk: (charms: string[]) => Mods): void {
   run.completed++;
   run.events.push(`Quota of ${run.quota} paid.`);
   run.round++;
-  const pool = CHARMS.filter((c) => !run.charms.includes(c.id)).map((c) => c.id);
-  if (pool.length === 0) return beginRound(run, mk(run.charms));
-  run.draft = shuffle(run.rng, pool).slice(0, 3);
+  run.tickets++;
+  run.shopRerolls = 0;
+  if (CHARMS.every((c) => run.charms.includes(c.id))) return beginRound(run, mk(run.charms));
+  run.draft = drawCharms(run.rng, run.charms, [], 3);
+  run.shop = drawCharms(run.rng, run.charms, run.draft, 4);
   run.rerollsLeft = m.rerolls;
   run.phase = "draft";
+}
+
+/** Up to n charms the run does not own and that are not in `skip`, drawn by rarity without repeats. */
+export function drawCharms(rng: Rng, owned: readonly string[], skip: readonly string[], n: number): string[] {
+  const pool = CHARMS.filter((c) => !owned.includes(c.id) && !skip.includes(c.id));
+  const out: string[] = [];
+  while (out.length < n && pool.length > 0) {
+    const i = weighted(rng, pool.map((c) => RARITY_WEIGHT[c.rarity]));
+    out.push((pool.splice(i, 1)[0] as { id: string }).id);
+  }
+  return out;
+}
+
+export const charmPrice = (id: string): number => RARITY_PRICE[CHARMS.find((c) => c.id === id)?.rarity ?? "rare"];
+export const shopRerollPrice = (run: Run): number => 1 + run.shopRerolls;
+
+/** Buy a charm from the shop with tickets. It joins the run at once (turns and drops from the next round). */
+export function buyCharm(run: Run, id: string): boolean {
+  if (run.phase !== "draft" || !run.shop.includes(id)) return false;
+  const price = charmPrice(id);
+  if (run.tickets < price) return false;
+  run.tickets -= price;
+  run.shop = run.shop.filter((x) => x !== id);
+  run.draft = run.draft.filter((x) => x !== id);
+  run.charms.push(id);
+  return true;
+}
+
+export function rerollShop(run: Run): boolean {
+  const price = shopRerollPrice(run);
+  if (run.phase !== "draft" || run.tickets < price) return false;
+  const fresh = drawCharms(run.rng, run.charms, run.draft, 4);
+  if (fresh.length === 0) return false;
+  run.tickets -= price;
+  run.shopRerolls++;
+  run.shop = fresh;
+  return true;
 }
 
 export function beginRound(run: Run, m: Mods): void {
@@ -177,6 +225,7 @@ export function beginRound(run: Run, m: Mods): void {
 export function pickCharm(run: Run, id: string, mk: (charms: string[]) => Mods): boolean {
   if (run.phase !== "draft" || !run.draft.includes(id)) return false;
   run.charms.push(id);
+  run.shop = [];
   beginRound(run, mk(run.charms));
   return true;
 }
@@ -195,10 +244,10 @@ export function buyUpgrade(run: Run, id: string): boolean {
 
 export function rerollDraft(run: Run): boolean {
   if (run.phase !== "draft" || run.rerollsLeft <= 0) return false;
-  const pool = CHARMS.filter((c) => !run.charms.includes(c.id) && !run.draft.includes(c.id)).map((c) => c.id);
-  if (pool.length === 0) return false;
+  const fresh = drawCharms(run.rng, run.charms, [...run.draft, ...run.shop], 3);
+  if (fresh.length === 0) return false;
   run.rerollsLeft--;
-  run.draft = shuffle(run.rng, pool).slice(0, 3);
+  run.draft = fresh;
   return true;
 }
 
@@ -212,10 +261,11 @@ export function spinSlot(run: Run, m: Mods, bet: number): Refusal | SlotResult {
   if (cost > run.coins) return "no-coins";
   run.coins -= cost;
   run.turnsLeft--;
-  const res = spin(run.rng, m.slotLines, bet, m.weights);
+  const res = spin(run.rng, m.slotLines, bet, m.weights, m.symPay);
   res.payout = Math.round(res.payout * m.slotWinMul);
   pourCoins(run, res.payout);
   run.freeDrops += res.freeDrops;
+  if (res.freeDrops > 0) run.tickets++;
   const s = run.stats;
   s.spins++;
   s.slotWins += res.wins.length;
@@ -344,6 +394,7 @@ export function restoreRun(raw: unknown): Run | null {
   }
   const num0 = (x: unknown): number => (typeof x === "number" && Number.isFinite(x) ? x : 0);
   const zone = Math.min(5, Math.max(1, Math.floor(num0(o.zone) || 1)));
+  const shop = Array.isArray(o.shop) ? o.shop.filter((c) => known.includes(c)) : [];
   const pour = Array.isArray(o.pour) ? o.pour.filter((k) => k === "coin" || k === "gold") : [];
-  return { ...(o as Run), zone, zoneHeat: Math.max(0, num0(o.zoneHeat)), zoneIdle: Math.max(0, num0(o.zoneIdle)), pour, upgrades, events: [], found: 0, finished: o.finished === true, overReason: o.overReason ?? "" };
+  return { ...(o as Run), tickets: Math.max(0, Math.floor(num0(o.tickets))), shop, shopRerolls: Math.max(0, Math.floor(num0(o.shopRerolls))), zone, zoneHeat: Math.max(0, num0(o.zoneHeat)), zoneIdle: Math.max(0, num0(o.zoneIdle)), pour, upgrades, events: [], found: 0, finished: o.finished === true, overReason: o.overReason ?? "" };
 }

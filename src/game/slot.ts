@@ -69,15 +69,16 @@ export function linePay(syms: readonly Sym[]): { sym: Sym; pay: number } | null 
   return null;
 }
 
-export function evaluate(grid: Sym[][], lines: number, bet: number): SlotResult {
+export function evaluate(grid: Sym[][], lines: number, bet: number, symPay?: Partial<Record<Sym, number>>): SlotResult {
   const wins: LineWin[] = [];
   let payout = 0;
   for (let i = 0; i < Math.min(lines, LINES.length); i++) {
     const cells = LINES[i] as readonly [number, number][];
     const hit = linePay(cells.map(([r, c]) => (grid[r] as Sym[])[c] as Sym));
     if (hit) {
-      wins.push({ line: i, sym: hit.sym, pay: hit.pay, cells });
-      payout += hit.pay * bet;
+      const pay = hit.pay * (symPay?.[hit.sym] ?? 1);
+      wins.push({ line: i, sym: hit.sym, pay, cells });
+      payout += pay * bet;
     }
   }
   let coins = 0;
@@ -85,6 +86,6 @@ export function evaluate(grid: Sym[][], lines: number, bet: number): SlotResult 
   return { grid, wins, payout, freeDrops: coins >= SCATTER_MIN ? coins : 0 };
 }
 
-export function spin(rng: Rng, lines: number, bet: number, weights: Record<Sym, number> = BASE_WEIGHTS): SlotResult {
-  return evaluate(spinGrid(rng, weights), lines, bet);
+export function spin(rng: Rng, lines: number, bet: number, weights: Record<Sym, number> = BASE_WEIGHTS, symPay?: Partial<Record<Sym, number>>): SlotResult {
+  return evaluate(spinGrid(rng, weights), lines, bet, symPay);
 }

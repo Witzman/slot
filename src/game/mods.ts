@@ -1,5 +1,5 @@
 import { BASE_PAY, type HandName } from "./poker";
-import { BASE_WEIGHTS, type Sym } from "./slot";
+import { BASE_WEIGHTS, SYMS, type Sym } from "./slot";
 
 /** Everything the tech tree and the charms of a run can change. Built fresh from the base by `applyAll`. */
 export interface Mods {
@@ -9,6 +9,8 @@ export interface Mods {
   slotMaxBet: number;
   slotWinMul: number;
   weights: Record<Sym, number>;
+  /** multiplies the line pay of a symbol */
+  symPay: Record<Sym, number>;
   pokerMaxBet: number;
   pokerPay: Record<HandName, number>;
   pokerDraws: number;
@@ -35,6 +37,7 @@ export function baseMods(): Mods {
     slotMaxBet: 3,
     slotWinMul: 1,
     weights: { ...BASE_WEIGHTS },
+    symPay: Object.fromEntries(SYMS.map((s) => [s, 1])) as Record<Sym, number>,
     pokerMaxBet: 3,
     pokerPay: { ...BASE_PAY },
     pokerDraws: 1,
