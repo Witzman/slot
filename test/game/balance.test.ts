@@ -5,7 +5,7 @@ import { QUOTA_BREAK, quotaFor, spinSlot, startRun } from "../../src/game/run";
 import { makeRng } from "../../src/game/rng";
 import { BASE_WEIGHTS, spin, spinGrid } from "../../src/game/slot";
 
-// Targets from the balance run (#9, tools/sim, notes/reference/balance.md). They pin the numbers a simulated player was tuned against.
+// Targets from the balance run (#9, tools/sim). They pin the numbers a simulated player was tuned against.
 describe("balance targets", () => {
   it("quota curve: forgiving up to round 5, steep after, bosses on top", () => {
     const m = baseMods();
