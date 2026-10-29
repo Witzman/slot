@@ -1,4 +1,4 @@
-import { CHARMS, RELICS, TECH, UPGRADES } from "./content";
+import { BOSSES, CHARMS, MAX_STAKE, RELICS, STAKE_QUOTA, STAKE_TURNS, TECH, UPGRADES } from "./content";
 import { type Mods, baseMods } from "./mods";
 import type { Run } from "./run";
 import { type Rng, weighted } from "./rng";
@@ -14,10 +14,12 @@ export interface Meta {
   bestRound: number;
   life: { spins: number; hands: number; drops: number; pusherPaid: number };
   seedCounter: number;
+  /** highest stake a run may start at */
+  maxStake: number;
 }
 
 export function newMeta(): Meta {
-  return { v: 1, chips: 0, tech: [], relics: [], ach: [], runs: 0, bestRound: 1, life: { spins: 0, hands: 0, drops: 0, pusherPaid: 0 }, seedCounter: 1 };
+  return { v: 1, chips: 0, tech: [], relics: [], ach: [], runs: 0, bestRound: 1, life: { spins: 0, hands: 0, drops: 0, pusherPaid: 0 }, seedCounter: 1, maxStake: 0 };
 }
 
 const num = (x: unknown, d = 0): number => (typeof x === "number" && Number.isFinite(x) && x >= 0 ? Math.floor(x) : d);
@@ -40,15 +42,19 @@ export function restoreMeta(raw: unknown): Meta {
     bestRound: Math.max(1, num(o.bestRound, 1)),
     life: { spins: num(life.spins), hands: num(life.hands), drops: num(life.drops), pusherPaid: num(life.pusherPaid) },
     seedCounter: Math.max(1, num(o.seedCounter, 1)),
+    maxStake: Math.min(MAX_STAKE, num(o.maxStake)),
   };
 }
 
-export function modsFor(meta: Meta, charms: readonly string[], upgrades: Readonly<Record<string, number>> = {}): Mods {
+export function modsFor(meta: Meta, charms: readonly string[], upgrades: Readonly<Record<string, number>> = {}, boss: string | null = null, stake = 0): Mods {
   const m = baseMods();
   for (const id of meta.tech) TECH.find((t) => t.id === id)?.effect(m);
   m.startCoins += Math.floor(meta.relics.length / 2); // the collection pays: 1 coin per 2 relics
   for (const id of charms) CHARMS.find((c) => c.id === id)?.effect(m);
   for (const u of UPGRADES) if ((upgrades[u.id] ?? 0) > 0) u.effect(m, upgrades[u.id] as number);
+  m.quotaMul *= 1 + STAKE_QUOTA * stake;
+  if (stake >= STAKE_TURNS) m.turns -= 1;
+  if (boss) BOSSES.find((b) => b.id === boss)?.effect(m);
   return m;
 }
 
@@ -106,6 +112,10 @@ export const ACHIEVEMENTS: readonly Achievement[] = [
   { id: "relic1", name: "Finders Keepers", text: "Find your first relic.", chips: 2, test: (m) => m.relics.length >= 1 },
   { id: "relic6", name: "Collector", text: "Find 6 relics.", chips: 4, test: (m) => m.relics.length >= 6 },
   { id: "alchemy", name: "Alchemist", text: "Craft 3 relics by combining others.", chips: 5, test: (m) => RELICS.filter((r) => r.craft && m.relics.includes(r.id)).length >= 3 },
+  { id: "boss1", name: "Debt Collector", text: "Beat a boss.", chips: 4, test: (_, r) => (r?.stats.bosses ?? 0) >= 1 },
+  { id: "boss3", name: "Boss Rush", text: "Beat three bosses in one run.", chips: 10, test: (_, r) => (r?.stats.bosses ?? 0) >= 3 },
+  { id: "stake1", name: "Raising the Stakes", text: "Unlock stake 1.", chips: 3, test: (m) => m.maxStake >= 1 },
+  { id: "stake3", name: "High Stakes Hero", text: "Unlock stake 3.", chips: 8, test: (m) => m.maxStake >= 3 },
   { id: "tech5", name: "Engineer", text: "Own 5 tech upgrades.", chips: 3, test: (m) => m.tech.length >= 5 },
 ];
 const ACH_IDS = ACHIEVEMENTS.map((a) => a.id);
@@ -124,7 +134,8 @@ export function checkAchievements(meta: Meta, run: Run | null): Achievement[] {
 export function finishRun(meta: Meta, run: Run): number {
   if (run.finished) return 0;
   run.finished = true;
-  const chips = run.completed * 3 + 1 + run.chipsPending;
+  const chips = Math.floor((run.completed * 3 + 1 + run.chipsPending) * (1 + 0.25 * run.stake));
+  if (run.stats.bosses >= 1 && run.stake === meta.maxStake && meta.maxStake < MAX_STAKE) meta.maxStake++;
   meta.chips += chips;
   meta.runs++;
   meta.bestRound = Math.max(meta.bestRound, run.round);

@@ -1,5 +1,5 @@
 import { ACHIEVEMENTS, type Meta } from "../game/meta";
-import { CHARMS, RELICS, TECH, UPGRADES, upgradeCost } from "../game/content";
+import { BOSSES, CHARMS, RELICS, TECH, UPGRADES, upgradeCost } from "../game/content";
 import type { Mods } from "../game/mods";
 import { HAND_LABEL, HAND_ORDER, type HandName, classify, rank, suit } from "../game/poker";
 import { type Run, ZONE_HEAT, canClose, charmPrice, quotaFor, shopRerollPrice, zoneMul } from "../game/run";
@@ -24,6 +24,8 @@ export interface UI {
   /** relics picked for combining (at most two) */
   picked: string[];
   craftNote: string;
+  /** stake picked for the next run */
+  stake: number;
 }
 
 export interface View {
@@ -143,9 +145,11 @@ export function pusherPanelInfo(v: View): string {
   const { run, ui, mods } = v;
   const live = run !== null && run.phase === "play";
   const close = run !== null && canClose(run, mods);
+  const boss = run?.boss ? BOSSES.find((b) => b.id === run.boss) : undefined;
+  const bossLine = boss ? `<p class="boss"><strong>BOSS · ${esc(boss.name)}</strong> ${esc(boss.text)}</p>` : "";
   const hint = !live || !run ? "Start a run to play" : `${run.pusher.coins.length} on the shelf · ${run.pour.length} coming · ${run.freeDrops} free drops · tap to drop (1 turn)`;
   const zone = run ? `Zone ${run.zone} (x${zoneMul(run, mods).toFixed(1)}${run.zone < mods.zoneMax ? `, heat ${run.zoneHeat}/${ZONE_HEAT[run.zone - 1] ?? 0}` : ", max"})` : "";
-  return `<p class="note">${esc(ui.pusherNote) || "3 · Pusher: your wins land here. Only coins pushed off the front count as yours."}</p>
+  return `${bossLine}<p class="note">${esc(ui.pusherNote) || "3 · Pusher: your wins land here. Only coins pushed off the front count as yours."}</p>
     <p class="hint">${zone ? `<strong class="gold">${zone}</strong> · ` : ""}${hint}</p>
     ${close && run ? `<button class="big" data-act="close">CLOSE ROUND <small>pay quota ${run.quota} · you have ${run.coins}</small></button>` : ""}`;
 }
@@ -212,10 +216,16 @@ export function bookPanel(v: View): string {
   return `<section class="book"><h2>Book</h2>
     <div class="cols">
       <div><h3>Missions this run</h3><ul class="plain">${missions}</ul><h3>Charms this run</h3><ul class="plain">${charms}</ul>
-        <h3>Career</h3><p class="hint">${meta.runs} runs · best round ${meta.bestRound} · ${meta.life.spins} spins · ${meta.life.hands} hands · ${meta.life.drops} drops · ${meta.life.pusherPaid} coins from the pusher</p></div>
+        <h3>Career</h3><p class="hint">${meta.runs} runs · best round ${meta.bestRound} · stake ${meta.maxStake} unlocked · ${meta.life.spins} spins · ${meta.life.hands} hands · ${meta.life.drops} drops · ${meta.life.pusherPaid} coins from the pusher</p></div>
       <div><h3>Achievements ${meta.ach.length}/${ACHIEVEMENTS.length}</h3><ul class="plain">${ach}</ul></div>
       <div><h3>Relics ${meta.relics.length}/${RELICS.length} <small>(+1 start coin per 2)</small></h3>${craft}<div class="relics">${relics}</div></div>
     </div></section>`;
+}
+
+function stakePicker(v: View): string {
+  if (v.meta.maxStake < 1) return "";
+  const s = v.ui.stake;
+  return `<div class="bet"><button data-act="stake" data-v="-1" ${s <= 0 ? "disabled" : ""}>−</button><span>Stake <strong>${s}</strong></span><button data-act="stake" data-v="1" ${s >= v.meta.maxStake ? "disabled" : ""}>+</button><small>unlocked ${v.meta.maxStake} · +${s * 12}% quota${s >= 3 ? ", 1 turn less" : ""} · chips x${(1 + 0.25 * s).toFixed(2)}</small></div>`;
 }
 
 export function overlay(v: View): string {
@@ -227,7 +237,7 @@ export function overlay(v: View): string {
       <h1>SLOT<b>·</b>ROGUE</h1>
       <p>Slots, video poker and a coin pusher in one run. Win coins on any machine, pay the quota when your turns run out, pick a charm, go deeper. Lose the run, earn chips, grow the tech tree.</p>
       <p class="hint">Each spin, hand or coin drop is one turn.</p>
-      <button class="big" data-act="newrun">Start run</button></div></div>`;
+      ${stakePicker(v)}<button class="big" data-act="newrun">Start run</button></div></div>`;
   }
   if (run.phase === "draft") {
     const find = (id: string) => CHARMS.find((c) => c.id === id);
@@ -248,7 +258,7 @@ export function overlay(v: View): string {
     const why = run.overReason === "bust" ? "You ran out of coins." : `You missed the quota of ${run.quota} with ${run.coins} coins.`;
     return `<div class="modal"><div class="card-box"><h2>Run over</h2><p>${why}</p>
       <p>Rounds cleared: <strong>${run.completed}</strong> · chips earned: <strong class="teal">+${ui.overChips}</strong> (total ${meta.chips})</p>
-      <div class="row"><button data-act="tab" data-v="tree">Tech tree</button><button class="big" data-act="newrun">New run</button></div></div></div>`;
+      ${stakePicker(v)}<div class="row"><button data-act="tab" data-v="tree">Tech tree</button><button class="big" data-act="newrun">New run</button></div></div></div>`;
   }
   return "";
 }
