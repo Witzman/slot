@@ -1,0 +1,49 @@
+import { BASE_PAY, type HandName } from "./poker";
+import { BASE_WEIGHTS, type Sym } from "./slot";
+
+/** Everything the tech tree and the charms of a run can change. Built fresh from the base by `applyAll`. */
+export interface Mods {
+  startCoins: number;
+  turns: number;
+  slotLines: number;
+  slotMaxBet: number;
+  slotWinMul: number;
+  weights: Record<Sym, number>;
+  pokerMaxBet: number;
+  pokerPay: Record<HandName, number>;
+  pokerDraws: number;
+  pokerMul: number;
+  goldChance: number;
+  prizeChance: number;
+  pusherPayMul: number;
+  quotaMul: number;
+  /** share of the coins kept at round end that is paid as interest (capped) */
+  interest: number;
+  freeDropsPerRound: number;
+  /** charm re-draws a round may have (the tree gives one per run) */
+  rerolls: number;
+}
+
+export function baseMods(): Mods {
+  return {
+    startCoins: 30,
+    turns: 10,
+    slotLines: 1,
+    slotMaxBet: 3,
+    slotWinMul: 1,
+    weights: { ...BASE_WEIGHTS },
+    pokerMaxBet: 3,
+    pokerPay: { ...BASE_PAY },
+    pokerDraws: 1,
+    pokerMul: 1,
+    goldChance: 0.08,
+    prizeChance: 0.03,
+    pusherPayMul: 1,
+    quotaMul: 1,
+    interest: 0,
+    freeDropsPerRound: 0,
+    rerolls: 0,
+  };
+}
+
+export type Effect = (m: Mods) => void;

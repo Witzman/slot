@@ -1,176 +1,333 @@
-import { applyKey, ButtonLatch, TouchTracker } from "../input/input";
-import { createCanvasRenderer } from "../render/canvas";
-import type { Renderer } from "../render/renderer";
-import { createAudio } from "../audio";
-import { advance, createGame, nudge, setPaused, takeAudio, takeCommands } from "../sim/game";
-import type { GameInput } from "../sim/game";
-import { buildScene, snapshot } from "../sim/snapshot";
+import "./style.css";
+import { type Meta, buyTech, combine, checkAchievements, fileRelic, finishRun, modsFor } from "../game/meta";
+import { RELICS, CHARMS } from "../game/content";
+import { HAND_LABEL } from "../game/poker";
+import { type Run, type Refusal, buyUpgrade, dealPoker, drainEvents, drawPoker, dropAt, holdCard, pickCharm, rerollDraft, spinSlot, startRun, tickPusher } from "../game/run";
+import { type Sym, SYMS, COLS, ROWS } from "../game/slot";
 import { localStore } from "../storage";
-import { hudLines } from "./hud";
-import { chooseRenderer } from "./renderer-choice";
-import { createKeeper, machineKey, toMachine } from "./machine";
-import { chooseTable } from "./table-choice";
+import { createPusherCanvas } from "./pusher-view";
+import { loadMeta, loadRun, save } from "./save";
+import { isMuted, setMuted, sfx, unlock } from "./sfx";
+import { GLYPH, type Tab, type UI, type View, bookPanel, hud, nav, overlay, pokerPanel, pusherPanelInfo, shopPanel, slotPanel, treePanel } from "./view";
 
-const found = document.getElementById("table");
-if (!(found instanceof HTMLCanvasElement)) throw new Error("canvas #table missing");
-let canvas: HTMLCanvasElement = found;
-const banner = document.getElementById("banner");
+const store = localStore();
+const $ = (id: string): HTMLElement => {
+  const e = document.getElementById(id);
+  if (!e) throw new Error(`#${id} missing`);
+  return e;
+};
+
+const REFUSAL: Record<Refusal, string> = {
+  "not-playing": "No run in progress.",
+  "no-turns": "No turns left this round.",
+  busy: "Finish the poker hand first.",
+  "no-coins": "Not enough coins.",
+  "bad-bet": "That bet is not allowed.",
+};
+
+const START_GRID: Sym[][] = [["cherry", "bell", "lemon"], ["bar", "seven", "bar"], ["lemon", "wild", "cherry"]];
 
 async function boot(): Promise<void> {
-  const { def, setup, flow } = chooseTable();
-  // what the machine remembers between visits: credits and scores
-  const keeper = createKeeper(localStore(), {
-    startCredits: flow.startCredits,
-    boardSize: flow.boardSize ?? 10,
-    key: machineKey(def.id),
-    onError: (e) => console.error("could not save the machine", e),
-  });
-  const stored = await keeper.load();
-  const game = createGame(def, { ...setup, machine: toMachine(stored) });
-  const keys: GameInput = { left: false, right: false, plunge: false, coin: false, start: false, buyin: false };
-  const touch = new TouchTracker(innerWidth, innerHeight);
-  // the 3D table (#45) unless the browser has no WebGL or the engine fails to start
-  const probe = document.createElement("canvas");
-  const webgl = (probe.getContext("webgl2") ?? probe.getContext("webgl")) !== null;
-  let usePlayCanvas = chooseRenderer(webgl) === "playcanvas";
-  let renderer: Renderer | null = null;
-  if (usePlayCanvas) {
-    try {
-      const { createPlayCanvasRenderer } = await import("../render/playcanvas");
-      renderer = createPlayCanvasRenderer({ canvas, overlayParent: document.body });
-    } catch (e) {
-      console.warn("the 3D renderer could not start, drawing the plain table", e);
-      usePlayCanvas = false;
-      const fresh = canvas.cloneNode(false) as HTMLCanvasElement; // a canvas that has tried WebGL is not trusted with a 2D context
-      canvas.replaceWith(fresh);
-      canvas = fresh;
+  let meta: Meta = await loadMeta(store);
+  let run: Run | null = await loadRun(store);
+  const ui: UI = { tab: "slot", slotBet: 1, pokerBet: 1, busy: false, grid: START_GRID, winCells: new Set(), slotNote: "", pokerNote: "", pusherNote: "", overChips: 0, muted: false, picked: [], craftNote: "" };
+  const mk = (charms: string[]) => modsFor(meta, charms, run?.upgrades ?? {});
+  const mods = () => mk(run?.charms ?? []);
+  const view = (): View => ({ run, meta, mods: mods(), ui });
+  let aim = 5;
+  let lastPhase = run?.phase ?? "over";
+
+  const pc = createPusherCanvas($("pc") as HTMLCanvasElement);
+  const hudEl = $("hud");
+  const navEl = $("nav");
+  const panelEl = $("panel");
+  const pusherEl = $("pusher");
+  const pinfoEl = $("pinfo");
+  const overlayEl = $("overlay");
+
+  function toast(text: string): void {
+    const t = document.createElement("div");
+    t.textContent = text;
+    $("toasts").appendChild(t);
+    setTimeout(() => t.remove(), 3800);
+  }
+
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  function persist(now = false): void {
+    clearTimeout(saveTimer);
+    const go = (): void => void save(store, meta, run).catch((e) => console.error("could not save", e));
+    if (now) go();
+    else saveTimer = setTimeout(go, 400);
+  }
+
+  function render(): void {
+    const v = view();
+    ui.slotBet = Math.min(Math.max(1, ui.slotBet), v.mods.slotMaxBet);
+    ui.pokerBet = Math.min(Math.max(1, ui.pokerBet), v.mods.pokerMaxBet);
+    hudEl.innerHTML = hud(v);
+    navEl.innerHTML = nav(v);
+    const onPusher = ui.tab === "pusher";
+    pusherEl.hidden = !onPusher;
+    panelEl.hidden = onPusher;
+    if (onPusher) pinfoEl.innerHTML = pusherPanelInfo(v);
+    else panelEl.innerHTML = { slot: slotPanel, poker: pokerPanel, shop: shopPanel, tree: treePanel, book: bookPanel, pusher: () => "" }[ui.tab](v);
+    overlayEl.innerHTML = overlay(v);
+    if (onPusher) pc.resize();
+  }
+
+  /** after anything changed the game: file prizes, show messages, unlock, close the run, save, draw */
+  function changed(): void {
+    if (run) {
+      for (; run.found > 0; run.found--) {
+        const id = fileRelic(meta, run.rng);
+        if (id) {
+          toast(`Relic found: ${RELICS.find((r) => r.id === id)?.name ?? id}`);
+          sfx.big();
+        } else {
+          meta.chips++;
+          toast("A relic you already own: +1 chip");
+        }
+      }
+      for (const e of drainEvents(run)) toast(e);
+      if (run.phase === "over" && !run.finished) {
+        ui.overChips = finishRun(meta, run);
+        sfx.lose();
+      }
+      if (run.phase === "draft" && lastPhase !== "draft") sfx.draft();
+      lastPhase = run.phase;
+    }
+    for (const a of checkAchievements(meta, run)) {
+      toast(`Achievement: ${a.name} (+${a.chips} chips)`);
+      sfx.win();
+    }
+    persist();
+    if (!ui.busy) render();
+    else hudEl.innerHTML = hud(view());
+  }
+
+  function newRun(): void {
+    const seed = (Date.now() ^ Math.imul(meta.seedCounter++, 2654435761)) >>> 0;
+    run = startRun(seed, mk([]));
+    lastPhase = "play";
+    ui.slotNote = ui.pokerNote = ui.pusherNote = "";
+    ui.winCells = new Set();
+    ui.grid = START_GRID;
+    if (ui.tab === "tree" || ui.tab === "book") ui.tab = "slot";
+    persist(true);
+    render();
+  }
+
+  function spinAction(): void {
+    if (!run || ui.busy) return;
+    const res = spinSlot(run, mods(), ui.slotBet, mk);
+    if (typeof res === "string") return void toast(REFUSAL[res]);
+    ui.busy = true;
+    ui.winCells = new Set();
+    ui.slotNote = "";
+    const stops = [450, 700, 950];
+    const t0 = performance.now();
+    const final = res.grid;
+    const timer = setInterval(() => {
+      const el = performance.now() - t0;
+      for (let c = 0; c < COLS; c++) {
+        if (el < (stops[c] ?? 0)) for (let r = 0; r < ROWS; r++) (ui.grid[r] as Sym[])[c] = SYMS[Math.floor(Math.random() * SYMS.length)] as Sym;
+        else for (let r = 0; r < ROWS; r++) (ui.grid[r] as Sym[])[c] = (final[r] as Sym[])[c] as Sym;
+      }
+      if (el < 950) {
+        const cells = panelEl.querySelectorAll<HTMLElement>(".reels .cell");
+        cells.forEach((cell, i) => {
+          const r = Math.floor(i / COLS);
+          const c = i % COLS;
+          cell.innerHTML = GLYPH[(ui.grid[r] as Sym[])[c] as Sym];
+        });
+        for (let c = 0; c < COLS; c++) if (el >= (stops[c] ?? 0) && el < (stops[c] ?? 0) + 80) sfx.reel(c);
+        return;
+      }
+      clearInterval(timer);
+      ui.grid = final.map((row) => [...row]);
+      ui.busy = false;
+      ui.winCells = new Set(res.wins.flatMap((w) => w.cells.map(([r, c]) => `${r},${c}`)));
+      const extra = res.freeDrops > 0 ? ` · ${res.freeDrops} free drops!` : "";
+      ui.slotNote = res.payout > 0 ? `Won ${res.payout} coins${extra}` : `No win${extra}`;
+      if (res.payout >= ui.slotBet * 20) sfx.big();
+      else if (res.payout > 0 || res.freeDrops > 0) sfx.win();
+      changed();
+    }, 70);
+  }
+
+  function dropAction(x: number): void {
+    if (!run) return;
+    const res = dropAt(run, mods(), x, mk);
+    if (res in REFUSAL) toast(REFUSAL[res as Refusal]);
+    else {
+      sfx.click();
+      changed();
     }
   }
-  if (renderer === null) {
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("2d canvas not available");
-    renderer = createCanvasRenderer(ctx);
-  }
-  const draw: Renderer = renderer;
-  const cameraMode = usePlayCanvas ? "tilted" : "top";
-  draw.setScene(buildScene(game.table));
 
-  function resize(): void {
-    const dpr = devicePixelRatio || 1;
-    if (!usePlayCanvas) {
-      canvas.width = Math.round(innerWidth * dpr);
-      canvas.height = Math.round(innerHeight * dpr);
+  function act(name: string, value: string): void {
+    unlock();
+    switch (name) {
+      case "tab":
+        ui.tab = value as Tab;
+        sfx.click();
+        render();
+        break;
+      case "mute":
+        ui.muted = !isMuted();
+        setMuted(ui.muted);
+        render();
+        break;
+      case "newrun":
+        newRun();
+        break;
+      case "slotbet":
+        ui.slotBet += Number(value);
+        sfx.click();
+        render();
+        break;
+      case "pokerbet":
+        ui.pokerBet += Number(value);
+        sfx.click();
+        render();
+        break;
+      case "spin":
+        spinAction();
+        break;
+      case "deal": {
+        if (!run) break;
+        const r = dealPoker(run, mods(), ui.pokerBet);
+        if (r) toast(REFUSAL[r]);
+        else {
+          ui.pokerNote = "";
+          sfx.card();
+          changed();
+        }
+        break;
+      }
+      case "hold":
+        if (run) holdCard(run, Number(value));
+        sfx.click();
+        render();
+        break;
+      case "draw": {
+        if (!run) break;
+        const r = drawPoker(run, mods(), mk);
+        if (!r) break;
+        sfx.card();
+        if (r.done) {
+          ui.pokerNote = r.name ? `${HAND_LABEL[r.name]}! +${r.pay} coins` : "No win";
+          if (r.pay > 0) (r.pay >= ui.pokerBet * 6 ? sfx.big : sfx.win)();
+        }
+        changed();
+        break;
+      }
+      case "charm":
+        if (run && pickCharm(run, value, mk)) {
+          toast(`Charm: ${CHARMS.find((c) => c.id === value)?.name ?? value}`);
+          sfx.win();
+          changed();
+        }
+        break;
+      case "reroll":
+        if (run && rerollDraft(run)) {
+          sfx.click();
+          changed();
+        }
+        break;
+      case "pickrelic": {
+        const i = ui.picked.indexOf(value);
+        if (i >= 0) ui.picked.splice(i, 1);
+        else ui.picked = [...ui.picked, value].slice(-2);
+        sfx.click();
+        render();
+        break;
+      }
+      case "combine": {
+        const [a, b] = ui.picked;
+        if (a === undefined || b === undefined) break;
+        const res = combine(meta, a, b);
+        const name = (id: string): string => RELICS.find((r) => r.id === id)?.name ?? id;
+        ui.craftNote = res.kind === "new" ? `Crafted: ${name(res.id)}!` : res.kind === "known" ? `You already have ${name(res.id)}.` : "Nothing happens.";
+        if (res.kind === "new") {
+          toast(ui.craftNote);
+          sfx.big();
+          ui.picked = [];
+          changed();
+        } else {
+          sfx.lose();
+          render();
+        }
+        break;
+      }
+      case "upgrade":
+        if (run && buyUpgrade(run, value)) {
+          sfx.gold();
+          changed();
+        }
+        break;
+      case "buy":
+        if (buyTech(meta, value)) {
+          sfx.win();
+          changed();
+        }
+        break;
     }
-    draw.resize(innerWidth, innerHeight, dpr);
-    touch.resize(innerWidth, innerHeight);
-  }
-  addEventListener("resize", resize);
-  resize();
-
-  // sound (#15): procedural, opened by the first gesture, loaded then and not before
-  const audio = createAudio(localStore());
-  // every gesture asks until the device runs: Safari wants the resume inside a gesture, and a first key like Escape may not count
-  const GESTURES = ["keydown", "pointerdown", "touchend", "click"] as const;
-  const gesture = (): void => {
-    audio.unlock();
-    if (audio.running()) for (const type of GESTURES) removeEventListener(type, gesture, true);
-  };
-  for (const type of GESTURES) addEventListener(type, gesture, true);
-
-  function pause(on: boolean): void {
-    setPaused(game, on);
-    if (banner) banner.hidden = !on;
-    if (on) audio.suspend();
-    else audio.resume();
   }
 
-  // a tap shorter than a frame must still count: the latch holds a press until the frame's ticks have run
-  const latch = new ButtonLatch();
-  function give(seen: GameInput): void {
-    for (const b of ["left", "right", "plunge", "coin", "start", "buyin"] as const) game.input[b] = seen[b];
-  }
-  function mergeInput(): void {
-    const t = touch.state();
-    const held = { ...keys };
-    for (const b of ["left", "right", "plunge", "coin", "start", "buyin"] as const) held[b] = keys[b] || t[b];
-    give(latch.update(held));
-  }
-
-  addEventListener("keydown", (e) => {
-    if (e.repeat) return;
-    if (e.code === "KeyM") audio.toggleMute();
-    const result = applyKey(keys, e.code, true);
-    if (result === "pause") pause(!game.paused);
-    else if (result !== undefined) nudge(game, result);
-    mergeInput();
-    if (["Space", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) e.preventDefault();
-  });
-  addEventListener("keyup", (e) => {
-    applyKey(keys, e.code, false);
-    mergeInput();
+  document.addEventListener("click", (e) => {
+    const t = (e.target as HTMLElement).closest<HTMLElement>("[data-act]");
+    if (t && !(t as HTMLButtonElement).disabled) act(t.dataset.act ?? "", t.dataset.v ?? "");
   });
 
+  const canvas = $("pc");
+  canvas.addEventListener("pointermove", (e) => void (aim = pc.xAt(e.clientX)));
   canvas.addEventListener("pointerdown", (e) => {
-    canvas.setPointerCapture(e.pointerId);
-    touch.down(e.pointerId, e.clientX, e.clientY, e.timeStamp);
-    mergeInput();
+    unlock();
+    aim = pc.xAt(e.clientX);
+    dropAction(aim);
   });
-  canvas.addEventListener("pointermove", (e) => {
-    const dir = touch.move(e.pointerId, e.clientX, e.clientY, e.timeStamp);
-    if (dir !== null) nudge(game, dir);
-    mergeInput();
-  });
-  for (const type of ["pointerup", "pointercancel"] as const) {
-    canvas.addEventListener(type, (e) => {
-      touch.up(e.pointerId);
-      mergeInput();
-    });
-  }
-
-  // a hidden tab or a lost window must not leave a button held
-  function releaseAll(): void {
-    for (const b of ["left", "right", "plunge", "coin", "start", "buyin"] as const) keys[b] = false;
-    touch.clear();
-    game.pendingNudge = null; // nor may a shove asked for just before fire when play resumes
-    latch.clear(); // a press made just before the tab was hidden must not fire when it comes back
-    give(latch.update({ left: false, right: false, plunge: false, coin: false, start: false, buyin: false }));
-  }
-  addEventListener("blur", releaseAll);
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden) {
-      releaseAll();
-      pause(true);
+  addEventListener("keydown", (e) => {
+    if (ui.tab !== "pusher") return;
+    if (e.key === "ArrowLeft") aim = Math.max(0, aim - 0.5);
+    else if (e.key === "ArrowRight") aim = Math.min(10, aim + 0.5);
+    else if (e.key === " " || e.key === "Enter") {
+      e.preventDefault();
+      unlock();
+      dropAction(aim);
     }
   });
+  addEventListener("resize", () => ui.tab === "pusher" && pc.resize());
+  addEventListener("pagehide", () => persist(true));
+  document.addEventListener("visibilitychange", () => document.hidden && persist(true));
 
+  // the pusher runs in real time while its tab is open and a round is on
   let last = performance.now();
-  let reported = 0; // errors already written to the console
+  let acc = 0;
   function frame(now: number): void {
-    advance(game, now - last);
-    give(latch.frameDone());
-    const cmds = takeCommands(game);
-    keeper.apply(cmds); // credits and scores are saved; lamps and the display have no listeners yet (#14)
-    const heard = takeAudio(game);
-    audio.feed(heard, cmds);
-    if (reported < game.errorCount) {
-      console.error("the game recovered from an error:", game.errors[game.errors.length - 1]);
-      reported = game.errorCount;
-    }
+    acc += Math.min(100, now - last);
     last = now;
-    draw.draw(snapshot(game, game.broken !== null ? ["SOMETHING WENT WRONG", "RELOAD THE PAGE"] : hudLines(game.rules.state, flow.startCost), cameraMode, heard.events));
+    if (ui.tab === "pusher" && run) {
+      const live = run.phase === "play" && !document.hidden && !ui.busy;
+      if (live) {
+        const steps = Math.floor(acc / (1000 / 60));
+        acc -= steps * (1000 / 60);
+        if (steps > 0) {
+          const paid = tickPusher(run, mods(), steps, mk);
+          if (paid > 0) {
+            sfx.coin();
+            changed();
+          }
+        }
+      } else acc = 0;
+      pc.draw(run.pusher, aim, live);
+    } else acc = 0;
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
 
-  // a handle for automated checks (screenshots); not part of the game
-  (globalThis as Record<string, unknown>).__slot = game;
+  changed(); // a loaded run that was over still pays its chips once
+  render();
 }
 
-boot().catch((e: unknown) => {
-  // storage that never answers, a table that does not load: say so instead of showing a blank page
-  console.error("could not start", e);
-  if (banner) {
-    banner.textContent = `Could not start: ${e instanceof Error ? e.message : String(e)}`;
-    banner.hidden = false;
-  }
-});
+void boot();

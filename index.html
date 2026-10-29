@@ -2,19 +2,29 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
-    <title>Slot</title>
-    <link rel="icon" href="data:," />
-    <style>
-      html, body { margin: 0; height: 100%; background: #0b0d14; overflow: hidden; }
-      canvas { display: block; width: 100vw; height: 100vh; touch-action: none; user-select: none; -webkit-user-select: none; }
-      #banner { position: fixed; inset: 0; display: grid; place-items: center; color: #e8e8f0; font: 600 2rem system-ui, sans-serif; background: rgba(11, 13, 20, 0.6); pointer-events: none; }
-      #banner[hidden] { display: none; }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#120a1f" />
+    <meta name="description" content="Slot machine, video poker and coin pusher in one roguelike run." />
+    <title>Slot Rogue</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E🎰%3C/text%3E%3C/svg%3E" />
   </head>
   <body>
-    <canvas id="table"></canvas>
-    <div id="banner" hidden>Paused (P)</div>
+    <div id="app">
+      <header id="hud"></header>
+      <main>
+        <div id="panel"></div>
+        <div id="pusher" hidden>
+          <section class="machine">
+            <h2>Coin Pusher</h2>
+            <div class="field"><canvas id="pc"></canvas></div>
+            <div id="pinfo"></div>
+          </section>
+        </div>
+      </main>
+      <nav id="nav"></nav>
+      <div id="overlay"></div>
+      <div id="toasts" aria-live="polite"></div>
+    </div>
     <script type="module" src="./src/app/main.ts"></script>
   </body>
 </html>
