@@ -1,0 +1,25 @@
+{
+  "name": "slot",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "budget": "node tools/check_budget.mjs",
+    "bench": "vitest run test/core/perf.test.ts --disable-console-intercept",
+    "golden:update": "node tools/golden-update.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2",
+    "vitest": "^4.1.11"
+  },
+  "dependencies": {
+    "playcanvas": "^2.23.0"
+  }
+}
