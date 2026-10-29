@@ -2,7 +2,7 @@ import "./style.css";
 import { type Meta, buyTech, combine, checkAchievements, fileRelic, finishRun, modsFor } from "../game/meta";
 import { RELICS, CHARMS } from "../game/content";
 import { HAND_LABEL } from "../game/poker";
-import { type Run, type Refusal, buyUpgrade, dealPoker, drainEvents, drawPoker, dropAt, holdCard, pickCharm, rerollDraft, spinSlot, startRun, tickPusher } from "../game/run";
+import { type Run, type Refusal, buyUpgrade, closeRound, drainEvents, drawPoker, dropAt, holdCard, pickCharm, rerollDraft, spinSlot, startRun, tickPusher } from "../game/run";
 import { type Sym, SYMS, COLS, ROWS } from "../game/slot";
 import { localStore } from "../storage";
 import { createPusherCanvas } from "./pusher-view";
@@ -30,7 +30,7 @@ const START_GRID: Sym[][] = [["cherry", "bell", "lemon"], ["bar", "seven", "bar"
 async function boot(): Promise<void> {
   let meta: Meta = await loadMeta(store);
   let run: Run | null = await loadRun(store);
-  const ui: UI = { tab: "slot", slotBet: 1, pokerBet: 1, busy: false, grid: START_GRID, winCells: new Set(), slotNote: "", pokerNote: "", pusherNote: "", overChips: 0, muted: false, picked: [], craftNote: "" };
+  const ui: UI = { tab: "play", slotBet: 1, pokerBet: 1, busy: false, grid: START_GRID, winCells: new Set(), slotNote: "", pokerNote: "", pusherNote: "", overChips: 0, muted: false, picked: [], craftNote: "" };
   const mk = (charms: string[]) => modsFor(meta, charms, run?.upgrades ?? {});
   const mods = () => mk(run?.charms ?? []);
   const view = (): View => ({ run, meta, mods: mods(), ui });
@@ -41,7 +41,9 @@ async function boot(): Promise<void> {
   const hudEl = $("hud");
   const navEl = $("nav");
   const panelEl = $("panel");
-  const pusherEl = $("pusher");
+  const cabinetEl = $("cabinet");
+  const slotEl = $("slotbox");
+  const pokerEl = $("pokerbox");
   const pinfoEl = $("pinfo");
   const overlayEl = $("overlay");
 
@@ -63,16 +65,18 @@ async function boot(): Promise<void> {
   function render(): void {
     const v = view();
     ui.slotBet = Math.min(Math.max(1, ui.slotBet), v.mods.slotMaxBet);
-    ui.pokerBet = Math.min(Math.max(1, ui.pokerBet), v.mods.pokerMaxBet);
-    hudEl.innerHTML = hud(v);
+        hudEl.innerHTML = hud(v);
     navEl.innerHTML = nav(v);
-    const onPusher = ui.tab === "pusher";
-    pusherEl.hidden = !onPusher;
-    panelEl.hidden = onPusher;
-    if (onPusher) pinfoEl.innerHTML = pusherPanelInfo(v);
-    else panelEl.innerHTML = { slot: slotPanel, poker: pokerPanel, shop: shopPanel, tree: treePanel, book: bookPanel, pusher: () => "" }[ui.tab](v);
+    const onPlay = ui.tab === "play";
+    cabinetEl.hidden = !onPlay;
+    panelEl.hidden = onPlay;
+    if (onPlay) {
+      slotEl.innerHTML = slotPanel(v);
+      pokerEl.innerHTML = pokerPanel(v);
+      pinfoEl.innerHTML = pusherPanelInfo(v);
+    } else panelEl.innerHTML = { play: () => "", shop: shopPanel, tree: treePanel, book: bookPanel }[ui.tab](v);
     overlayEl.innerHTML = overlay(v);
-    if (onPusher) pc.resize();
+    if (onPlay) pc.resize();
   }
 
   /** after anything changed the game: file prizes, show messages, unlock, close the run, save, draw */
@@ -112,14 +116,14 @@ async function boot(): Promise<void> {
     ui.slotNote = ui.pokerNote = ui.pusherNote = "";
     ui.winCells = new Set();
     ui.grid = START_GRID;
-    if (ui.tab === "tree" || ui.tab === "book") ui.tab = "slot";
+    ui.tab = "play";
     persist(true);
     render();
   }
 
   function spinAction(): void {
     if (!run || ui.busy) return;
-    const res = spinSlot(run, mods(), ui.slotBet, mk);
+    const res = spinSlot(run, mods(), ui.slotBet);
     if (typeof res === "string") return void toast(REFUSAL[res]);
     ui.busy = true;
     ui.winCells = new Set();
@@ -134,7 +138,7 @@ async function boot(): Promise<void> {
         else for (let r = 0; r < ROWS; r++) (ui.grid[r] as Sym[])[c] = (final[r] as Sym[])[c] as Sym;
       }
       if (el < 950) {
-        const cells = panelEl.querySelectorAll<HTMLElement>(".reels .cell");
+        const cells = slotEl.querySelectorAll<HTMLElement>(".reels .cell");
         cells.forEach((cell, i) => {
           const r = Math.floor(i / COLS);
           const c = i % COLS;
@@ -157,7 +161,7 @@ async function boot(): Promise<void> {
 
   function dropAction(x: number): void {
     if (!run) return;
-    const res = dropAt(run, mods(), x, mk);
+    const res = dropAt(run, mods(), x);
     if (res in REFUSAL) toast(REFUSAL[res as Refusal]);
     else {
       sfx.click();
@@ -186,25 +190,15 @@ async function boot(): Promise<void> {
         sfx.click();
         render();
         break;
-      case "pokerbet":
-        ui.pokerBet += Number(value);
-        sfx.click();
-        render();
-        break;
       case "spin":
         spinAction();
         break;
-      case "deal": {
-        if (!run) break;
-        const r = dealPoker(run, mods(), ui.pokerBet);
-        if (r) toast(REFUSAL[r]);
-        else {
-          ui.pokerNote = "";
-          sfx.card();
+      case "close":
+        if (run && closeRound(run, mods(), mk)) {
+          sfx.click();
           changed();
         }
         break;
-      }
       case "hold":
         if (run) holdCard(run, Number(value));
         sfx.click();
@@ -212,12 +206,12 @@ async function boot(): Promise<void> {
         break;
       case "draw": {
         if (!run) break;
-        const r = drawPoker(run, mods(), mk);
+        const r = drawPoker(run, mods());
         if (!r) break;
         sfx.card();
         if (r.done) {
           ui.pokerNote = r.name ? `${HAND_LABEL[r.name]}! +${r.pay} coins` : "No win";
-          if (r.pay > 0) (r.pay >= ui.pokerBet * 6 ? sfx.big : sfx.win)();
+          if (r.pay > 0) (r.pay >= 6 ? sfx.big : sfx.win)();
         }
         changed();
         break;
@@ -288,7 +282,7 @@ async function boot(): Promise<void> {
     dropAction(aim);
   });
   addEventListener("keydown", (e) => {
-    if (ui.tab !== "pusher") return;
+    if (ui.tab !== "play") return;
     if (e.key === "ArrowLeft") aim = Math.max(0, aim - 0.5);
     else if (e.key === "ArrowRight") aim = Math.min(10, aim + 0.5);
     else if (e.key === " " || e.key === "Enter") {
@@ -297,7 +291,7 @@ async function boot(): Promise<void> {
       dropAction(aim);
     }
   });
-  addEventListener("resize", () => ui.tab === "pusher" && pc.resize());
+  addEventListener("resize", () => ui.tab === "play" && pc.resize());
   addEventListener("pagehide", () => persist(true));
   document.addEventListener("visibilitychange", () => document.hidden && persist(true));
 
@@ -307,13 +301,13 @@ async function boot(): Promise<void> {
   function frame(now: number): void {
     acc += Math.min(100, now - last);
     last = now;
-    if (ui.tab === "pusher" && run) {
+    if (ui.tab === "play" && run) {
       const live = run.phase === "play" && !document.hidden && !ui.busy;
       if (live) {
         const steps = Math.floor(acc / (1000 / 60));
         acc -= steps * (1000 / 60);
         if (steps > 0) {
-          const paid = tickPusher(run, mods(), steps, mk);
+          const paid = tickPusher(run, mods(), steps);
           if (paid > 0) {
             sfx.coin();
             changed();

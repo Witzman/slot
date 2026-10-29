@@ -19,7 +19,7 @@ export function createPusherCanvas(canvas: HTMLCanvasElement): PusherCanvas {
   function resize(): void {
     const box = canvas.parentElement?.getBoundingClientRect();
     const availW = Math.max(220, Math.min(box?.width ?? 360, 520));
-    const availH = Math.max(280, Math.min(innerHeight - 260, 640));
+    const availH = Math.max(280, Math.min(innerHeight - 230, 640));
     scale = Math.min(availW / W, availH / (D + TOP + 0.6));
     cssW = Math.round(W * scale);
     cssH = Math.round((D + TOP + 0.6) * scale);

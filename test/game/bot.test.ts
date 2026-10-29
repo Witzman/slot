@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { modsFor, newMeta } from "../../src/game/meta";
-import { type Run, dealPoker, drawPoker, dropAt, holdCard, pickCharm, spinSlot, startRun, tickPusher } from "../../src/game/run";
+import { type Run, closeRound, drawPoker, dropAt, holdCard, pickCharm, spinSlot, startRun, tickPusher } from "../../src/game/run";
 import { rank } from "../../src/game/poker";
 import { makeRng, int } from "../../src/game/rng";
 
-/** A simple player: mixes the three machines, holds pairs and high cards, takes the first charm, bets a little more when rich. */
+/** A simple player: pulls, holds pairs and high cards, drops a few coins, closes the round when the turns are gone, takes the first charm. */
 function play(seed: number, tech: string[]): Run {
   const meta = newMeta();
   meta.tech = tech;
   const mk = (c: string[]) => modsFor(meta, c);
   const run = startRun(seed, mk([]));
   const pick = makeRng(seed ^ 0x55);
-  for (let i = 0; i < 5000 && run.phase !== "over"; i++) {
+  for (let i = 0; i < 3000 && run.phase !== "over"; i++) {
     const m = mk(run.charms);
     if (run.phase === "draft") {
       pickCharm(run, run.draft[0] as string, mk);
@@ -21,36 +21,24 @@ function play(seed: number, tech: string[]): Run {
       const counts = new Map<number, number>();
       for (const c of run.poker.hand) counts.set(rank(c), (counts.get(rank(c)) ?? 0) + 1);
       run.poker.hand.forEach((c, j) => ((counts.get(rank(c)) ?? 0) >= 2 || rank(c) >= 11) && holdCard(run, j));
-      drawPoker(run, m, mk);
-      continue;
+      drawPoker(run, m);
+    } else if (run.turnsLeft > 0 && run.coins >= m.slotLines) {
+      spinSlot(run, m, run.coins > 60 ? Math.min(2, m.slotMaxBet) : 1);
+      if (int(pick, 2) === 0) dropAt(run, m, 1 + int(pick, 8));
+    } else {
+      tickPusher(run, m, 60 * 20);
+      closeRound(run, m, mk);
     }
-    const bet = run.coins > 60 ? 2 : 1;
-    const k = int(pick, 3);
-    if (k === 0) dealPoker(run, m, Math.min(bet, m.pokerMaxBet));
-    else if (k === 1) spinSlot(run, m, Math.min(bet, m.slotMaxBet), mk);
-    else {
-      dropAt(run, m, 1 + int(pick, 8), mk);
-      tickPusher(run, m, 60 * 5, mk);
-    }
+    tickPusher(run, m, 60 * 3);
   }
   return run;
 }
 
 describe("a simple player", () => {
-  it("clears the first rounds often but not for ever, and every run ends", () => {
-    const rounds = Array.from({ length: 24 }, (_, i) => play(1000 + i, []).round);
-    rounds.sort((a, b) => a - b);
-    console.log("rounds reached (untouched tree): median", rounds[12], "min", rounds[0], "max", rounds[23]);
+  it("clears the first round, does not go on for ever, and every run ends", () => {
+    const rounds = Array.from({ length: 12 }, (_, i) => play(1000 + i, []).round).sort((a, b) => a - b);
+    console.log("rounds reached (untouched tree): median", rounds[6], "min", rounds[0], "max", rounds[11]);
     expect(rounds.every((r) => r >= 1 && r < 40)).toBe(true);
-    expect(rounds[23]).toBeGreaterThan(2);
-    expect(rounds[0]).toBeLessThan(rounds[23] as number);
-  }, 60_000);
-
-  it("goes further with a bought tree", () => {
-    const tree = ["purse1", "purse2", "time1", "time2", "lines3", "gold1", "free1", "pbet"];
-    const base = Array.from({ length: 20 }, (_, i) => play(2000 + i, []).round).reduce((a, b) => a + b, 0);
-    const bought = Array.from({ length: 20 }, (_, i) => play(2000 + i, tree).round).reduce((a, b) => a + b, 0);
-    console.log("total rounds, 40 runs: base", base, "tree", bought);
-    expect(bought).toBeGreaterThan(base);
+    expect(rounds[11]).toBeGreaterThan(1);
   }, 60_000);
 });

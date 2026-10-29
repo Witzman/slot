@@ -1,7 +1,7 @@
 import { CHARMS, UPGRADES, upgradeCost } from "./content";
 import type { Mods } from "./mods";
 import { type HandName, HAND_ORDER, type PokerState, classify, deal, draw, freshPoker, payFor, toggleHold } from "./poker";
-import { type CoinKind, type Pusher, dropCoin, newPusher, stepMany } from "./pusher";
+import { type CoinKind, type Pusher, W, dropCoin, newPusher, stepMany } from "./pusher";
 import { type Rng, makeRng, next, shuffle } from "./rng";
 import { type SlotResult, spin } from "./slot";
 import { type MissionState, drawMissions, updateMissions } from "./missions";
@@ -39,6 +39,8 @@ export interface Run {
   rerollsLeft: number;
   poker: PokerState;
   pusher: Pusher;
+  /** winnings on their way onto the pusher: slot and poker pay by pouring coins on the shelf */
+  pour: ("coin" | "gold")[];
   stats: RunStats;
   missions: MissionState[];
   /** chips already earned by missions this run */
@@ -52,8 +54,8 @@ export interface Run {
   finished: boolean;
 }
 
-export const QUOTA_BASE = 18;
-export const QUOTA_GROWTH = 1.4;
+export const QUOTA_BASE = 15;
+export const QUOTA_GROWTH = 1.35;
 
 export function quotaFor(round: number, m: Mods): number {
   return Math.max(1, Math.round(QUOTA_BASE * Math.pow(QUOTA_GROWTH, round - 1) * m.quotaMul));
@@ -76,6 +78,7 @@ export function startRun(seed: number, m: Mods): Run {
     rerollsLeft: m.rerolls,
     poker: freshPoker(),
     pusher: newPusher(rng),
+    pour: [],
     stats: { spins: 0, slotWins: 0, bestSlotWin: 0, jackpots: 0, hands: 0, goodHands: 0, bestHand: 0, drops: 0, pusherPaid: 0, relics: 0, maxCoins: m.startCoins },
     missions: [],
     chipsPending: 0,
@@ -101,16 +104,24 @@ function gain(run: Run, n: number): void {
   if (run.coins > run.stats.maxCoins) run.stats.maxCoins = run.coins;
 }
 
-/** Spend a turn, then check whether the round or the run is over. */
-function afterAction(run: Run, m: Mods, mk: (charms: string[]) => Mods): void {
-  updateMissions(run);
-  if (run.phase !== "play" || run.poker.phase !== "bet") return;
-  if (run.turnsLeft <= 0) return settle(run, m, mk);
-  if (run.coins < 1 && run.freeDrops < 1) {
-    run.phase = "over";
-    run.overReason = "bust";
-    run.events.push("Out of coins. The run is over.");
-  }
+export const MIN_BET = 1;
+
+/** The round can be closed once the turns are gone or nothing more can be paid for, and no hand is open. */
+export function canClose(run: Run, m: Mods): boolean {
+  return run.phase === "play" && run.poker.phase === "bet" && (run.turnsLeft <= 0 || run.coins < m.slotLines * MIN_BET);
+}
+
+/** Close the round: pay the quota from the wallet (coins still on the shelf do not count) and offer charms, or end the run. */
+export function closeRound(run: Run, m: Mods, mk: (charms: string[]) => Mods): boolean {
+  if (!canClose(run, m)) return false;
+  settle(run, m, mk);
+  return true;
+}
+
+/** Winnings go onto the pusher shelf as coins; every fifth coin is gold. */
+function pourCoins(run: Run, n: number): void {
+  for (let i = 0; i < Math.floor(n / 5); i++) run.pour.push("gold");
+  for (let i = 0; i < n % 5; i++) run.pour.push("coin");
 }
 
 function settle(run: Run, m: Mods, mk: (charms: string[]) => Mods): void {
@@ -172,7 +183,8 @@ export function rerollDraft(run: Run): boolean {
   return true;
 }
 
-export function spinSlot(run: Run, m: Mods, bet: number, mk: (charms: string[]) => Mods): Refusal | SlotResult {
+/** One pull: pay the bet, spin the reels, pour the win on the pusher and deal a free poker hand of the same stake. */
+export function spinSlot(run: Run, m: Mods, bet: number): Refusal | SlotResult {
   const no = canAct(run);
   if (no) return no;
   if (run.poker.phase !== "bet") return "busy";
@@ -183,41 +195,30 @@ export function spinSlot(run: Run, m: Mods, bet: number, mk: (charms: string[]) 
   run.turnsLeft--;
   const res = spin(run.rng, m.slotLines, bet, m.weights);
   res.payout = Math.round(res.payout * m.slotWinMul);
-  gain(run, res.payout);
+  pourCoins(run, res.payout);
   run.freeDrops += res.freeDrops;
   const s = run.stats;
   s.spins++;
   s.slotWins += res.wins.length;
   s.jackpots += res.wins.filter((w) => w.sym === "seven").length;
   if (res.payout > s.bestSlotWin) s.bestSlotWin = res.payout;
-  afterAction(run, m, mk);
+  deal(run.poker, run.rng, Math.min(bet, m.pokerMaxBet), m.pokerDraws);
+  updateMissions(run);
   return res;
-}
-
-export function dealPoker(run: Run, m: Mods, bet: number): Refusal | null {
-  const no = canAct(run);
-  if (no) return no;
-  if (run.poker.phase !== "bet") return "busy";
-  if (!Number.isInteger(bet) || bet < 1 || bet > m.pokerMaxBet) return "bad-bet";
-  if (bet > run.coins) return "no-coins";
-  run.coins -= bet;
-  run.turnsLeft--;
-  deal(run.poker, run.rng, bet, m.pokerDraws);
-  return null;
 }
 
 export function holdCard(run: Run, i: number): void {
   toggleHold(run.poker, i);
 }
 
-/** Draws; when the hand is over it pays. Returns the hand made, if the hand ended. */
-export function drawPoker(run: Run, m: Mods, mk: (charms: string[]) => Mods): { done: boolean; name: HandName | null; pay: number } | null {
+/** Draws; when the hand is over its win is poured on the pusher. */
+export function drawPoker(run: Run, m: Mods): { done: boolean; name: HandName | null; pay: number } | null {
   if (run.poker.phase !== "hold") return null;
   const done = draw(run.poker);
   if (!done) return { done: false, name: null, pay: 0 };
   const name = classify(run.poker.hand);
   const pay = Math.round(payFor(name, run.poker.bet, m.pokerPay) * m.pokerMul);
-  gain(run, pay);
+  pourCoins(run, pay);
   const s = run.stats;
   s.hands++;
   if (name) {
@@ -225,13 +226,15 @@ export function drawPoker(run: Run, m: Mods, mk: (charms: string[]) => Mods): { 
     const rank = HAND_ORDER.length - HAND_ORDER.indexOf(name);
     if (rank > s.bestHand) s.bestHand = rank;
   }
-  afterAction(run, m, mk);
+  updateMissions(run);
   return { done: true, name, pay };
 }
 
-export function dropAt(run: Run, m: Mods, x: number, mk: (charms: string[]) => Mods): Refusal | CoinKind {
+/** Drop a coin on the shelf: a free drop first, else one coin from the wallet. Costs a turn, like a pull. */
+export function dropAt(run: Run, m: Mods, x: number): Refusal | CoinKind {
   const no = canAct(run);
   if (no) return no;
+  if (run.poker.phase !== "bet") return "busy";
   if (run.freeDrops < 1 && run.coins < 1) return "no-coins";
   if (run.freeDrops >= 1) run.freeDrops--;
   else run.coins--;
@@ -240,12 +243,18 @@ export function dropAt(run: Run, m: Mods, x: number, mk: (charms: string[]) => M
   dropCoin(run.pusher, x, kind);
   if (next(run.rng) < m.prizeChance) dropCoin(run.pusher, 1 + next(run.rng) * 8, "prize");
   run.stats.drops++;
-  afterAction(run, m, mk);
+  updateMissions(run);
   return kind;
 }
 
-/** Advance the pusher by n steps and pay what falls. Not a turn. */
-export function tickPusher(run: Run, m: Mods, n: number, mk: (charms: string[]) => Mods): number {
+/** Advance the pusher by n steps: queued winnings drop in, coins that fall off the front are paid into the wallet. Not a turn. */
+export function tickPusher(run: Run, m: Mods, n: number): number {
+  let room = Math.ceil(n / 4);
+  while (room-- > 0 && run.pour.length > 0) {
+    const kind = run.pour[0] as "coin" | "gold";
+    if (!dropCoin(run.pusher, 0.6 + next(run.rng) * (W - 1.2), kind)) break;
+    run.pour.shift();
+  }
   const fallen = stepMany(run.pusher, n);
   let paid = 0;
   for (const c of fallen) {
@@ -260,7 +269,7 @@ export function tickPusher(run: Run, m: Mods, n: number, mk: (charms: string[]) 
   if (paid > 0) {
     gain(run, paid);
     run.stats.pusherPaid += paid;
-    afterAction(run, m, mk);
+    updateMissions(run);
   }
   return paid;
 }
@@ -294,5 +303,6 @@ export function restoreRun(raw: unknown): Run | null {
     const l = (o.upgrades as Record<string, unknown> | undefined)?.[u.id];
     if (typeof l === "number" && l >= 1 && l <= u.max) upgrades[u.id] = Math.floor(l);
   }
-  return { ...(o as Run), upgrades, events: [], found: 0, finished: o.finished === true, overReason: o.overReason ?? "" };
+  const pour = Array.isArray(o.pour) ? o.pour.filter((k) => k === "coin" || k === "gold") : [];
+  return { ...(o as Run), pour, upgrades, events: [], found: 0, finished: o.finished === true, overReason: o.overReason ?? "" };
 }

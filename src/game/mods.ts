@@ -26,8 +26,8 @@ export interface Mods {
 
 export function baseMods(): Mods {
   return {
-    startCoins: 30,
-    turns: 10,
+    startCoins: 40,
+    turns: 12,
     slotLines: 1,
     slotMaxBet: 3,
     slotWinMul: 1,

@@ -5,8 +5,8 @@ export const W = 10;
 export const D = 12;
 export const R = 0.45;
 const PLATE_MIN = 1.5;
-const PLATE_TRAVEL = 2;
-const PERIOD = 240; // steps per full stroke (60 steps per second)
+const PLATE_TRAVEL = 3;
+const PERIOD = 180; // steps per full stroke (60 steps per second)
 const ITERATIONS = 6;
 export const MAX_COINS = 160;
 
@@ -31,15 +31,15 @@ export function plateFront(t: number): number {
   return PLATE_MIN + PLATE_TRAVEL * (phase < 0.5 ? phase * 2 : 2 - phase * 2);
 }
 
-export function newPusher(rng: Rng, coins = 48): Pusher {
+export function newPusher(rng: Rng, coins = 63): Pusher {
   const p: Pusher = { t: 0, nextId: 1, coins: [] };
   const cols = 9;
   for (let i = 0; i < coins; i++) {
     const row = Math.floor(i / cols);
     const col = i % cols;
     const x = R + 0.1 + col * ((W - 2 * R - 0.2) / (cols - 1)) + (next(rng) - 0.5) * 0.15;
-    const y = 4.6 + row * 0.95 + (next(rng) - 0.5) * 0.15;
-    const kind: CoinKind = i === 17 ? "prize" : i % 13 === 5 ? "gold" : "coin";
+    const y = 5.6 + row * 0.95 + (next(rng) - 0.5) * 0.15;
+    const kind: CoinKind = i === 20 ? "prize" : i % 13 === 5 ? "gold" : "coin";
     p.coins.push({ id: p.nextId++, x, y, kind });
   }
   return p;

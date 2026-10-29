@@ -2,11 +2,11 @@ import { ACHIEVEMENTS, type Meta } from "../game/meta";
 import { CHARMS, RELICS, TECH, UPGRADES, upgradeCost } from "../game/content";
 import type { Mods } from "../game/mods";
 import { HAND_LABEL, HAND_ORDER, type HandName, classify, rank, suit } from "../game/poker";
-import { type Run } from "../game/run";
+import { type Run, canClose } from "../game/run";
 import { missionDef, missionProgress } from "../game/missions";
 import { COLS, LINES, ROWS, type Sym } from "../game/slot";
 
-export type Tab = "slot" | "poker" | "pusher" | "shop" | "tree" | "book";
+export type Tab = "play" | "shop" | "tree" | "book";
 
 export interface UI {
   tab: Tab;
@@ -72,7 +72,7 @@ export function hud(v: View): string {
 }
 
 export function nav(v: View): string {
-  const tabs: [Tab, string][] = [["slot", "Slots"], ["poker", "Poker"], ["pusher", "Pusher"], ["shop", "Shop"], ["tree", "Tech"], ["book", "Book"]];
+  const tabs: [Tab, string][] = [["play", "Play"], ["shop", "Shop"], ["tree", "Tech"], ["book", "Book"]];
   return tabs.map(([t, label]) => `<button class="${v.ui.tab === t ? "active" : ""}" data-act="tab" data-v="${t}">${label}</button>`).join("");
 }
 
@@ -93,13 +93,14 @@ export function slotPanel(v: View): string {
     }
   }
   const canSpin = live && run !== null && run.poker.phase === "bet" && run.turnsLeft > 0 && run.coins >= cost;
+  const why = !run || run.phase !== "play" ? "" : run.poker.phase === "hold" ? "Draw your free hand first." : run.turnsLeft <= 0 ? "No turns left: let the shelf run, then close the round." : run.coins < cost ? "Not enough coins." : "";
   return `
     <section class="machine slot">
-      <h2>Fruit Machine</h2>
+      <h2>1 · Reels</h2>
       <div class="reels">${cells.join("")}</div>
-      <p class="note">${esc(ui.slotNote) || "Three of a kind on a line pays. The star is wild. Three coin symbols anywhere give free pusher drops."}</p>
+      <p class="note">${esc(ui.slotNote) || "Wins pour onto the pusher shelf. The star is wild. Three coin symbols give free drops."}</p>
       ${betRow("slotbet", ui.slotBet, mods.slotMaxBet, !live)}
-      <button class="big" data-act="spin" ${canSpin ? "" : "disabled"}>SPIN <small>${cost} coins · ${lines} line${lines > 1 ? "s" : ""}</small></button>
+      <button class="big" data-act="spin" ${canSpin ? "" : "disabled"}>PULL <small>${why || `${cost} coins · ${lines} line${lines > 1 ? "s" : ""} · 1 turn`}</small></button>
       <details class="paytable"><summary>Pay table</summary>
         <ul><li>${GLYPH.cherry}${GLYPH.cherry} (left) ×1</li><li>3× ${GLYPH.cherry} ×4</li><li>3× ${GLYPH.lemon} ×6</li><li>3× ${GLYPH.bell} ×10</li><li>3× BAR ×20</li><li>3× 7 ×60</li></ul>
       </details>
@@ -124,26 +125,27 @@ export function pokerPanel(v: View): string {
   const phase = p?.phase ?? "bet";
   const live = run !== null && run.phase === "play" && !ui.busy;
   const made: HandName | null = p && p.hand.length === 5 ? classify(p.hand) : null;
-  const bet = phase === "hold" && p ? p.bet : ui.pokerBet;
-  const cards = p && p.hand.length === 5 ? p.hand.map((c, i) => cardHtml(c, p.held[i] === true, phase === "hold" && live, i)).join("") : `<div class="empty">Deal a hand</div>`;
-  const rows = HAND_ORDER.map((h) => `<li class="${made === h ? "now" : ""}"><span>${HAND_LABEL[h]}</span><b>${mods.pokerPay[h] * bet}</b></li>`).join("");
-  const canDeal = live && run !== null && phase === "bet" && run.turnsLeft > 0 && run.coins >= ui.pokerBet;
+  const bet = p && p.hand.length === 5 ? p.bet : 1;
+  const cards = p && p.hand.length === 5 ? p.hand.map((c, i) => cardHtml(c, p.held[i] === true && phase === "hold", phase === "hold" && live, i)).join("") : `<div class="empty">Every pull deals a free hand</div>`;
+  const rows = HAND_ORDER.map((h) => `<li class="${made === h ? "now" : ""}"><span>${HAND_LABEL[h]}</span><b>${Math.round(mods.pokerPay[h] * bet * mods.pokerMul)}</b></li>`).join("");
   return `
     <section class="machine poker">
-      <h2>Jacks or Better</h2>
+      <h2>2 · Free hand</h2>
       <div class="hand">${cards}</div>
-      <p class="note">${esc(ui.pokerNote) || (phase === "hold" ? `Tap cards to hold, then draw${p && p.draws > 1 ? " (two draws)" : ""}.` : "Bet, deal, hold, draw.")}</p>
-      ${betRow("pokerbet", ui.pokerBet, mods.pokerMaxBet, !live || phase === "hold")}
-      ${phase === "hold" ? `<button class="big" data-act="draw" ${live ? "" : "disabled"}>DRAW</button>` : `<button class="big" data-act="deal" ${canDeal ? "" : "disabled"}>DEAL <small>${ui.pokerBet} coins</small></button>`}
+      <p class="note">${esc(ui.pokerNote) || (phase === "hold" ? `Tap cards to hold, then draw${p && p.draws > 1 ? " (two draws)" : ""}. Stake ${bet}.` : "Wins pour onto the shelf too.")}</p>
+      <button class="big" data-act="draw" ${phase === "hold" && live ? "" : "disabled"}>DRAW</button>
       <ul class="paytable list">${rows}</ul>
     </section>`;
 }
 
 export function pusherPanelInfo(v: View): string {
-  const { run, ui } = v;
+  const { run, ui, mods } = v;
   const live = run !== null && run.phase === "play";
-  return `<p class="note">${esc(ui.pusherNote) || "Tap the field to drop a coin (1 coin, or a free drop). Coins pushed off the front are yours. Gold coins pay 5, purple prizes are relics."}</p>
-    <p class="hint">${live && run ? `${run.pusher.coins.length} coins on the shelf · ${run.freeDrops} free drops` : "Start a run to play"} · ← → move, space drops</p>`;
+  const close = run !== null && canClose(run, mods);
+  const hint = !live || !run ? "Start a run to play" : `${run.pusher.coins.length} on the shelf · ${run.pour.length} coming · ${run.freeDrops} free drops · tap to drop (1 turn)`;
+  return `<p class="note">${esc(ui.pusherNote) || "3 · Pusher: your wins land here. Only coins pushed off the front count as yours."}</p>
+    <p class="hint">${hint}</p>
+    ${close && run ? `<button class="big" data-act="close">CLOSE ROUND <small>pay quota ${run.quota} · you have ${run.coins}</small></button>` : ""}`;
 }
 
 export function shopPanel(v: View): string {
