@@ -1,6 +1,6 @@
 # SLOT
 
-A casino-style game for the web browser that combines a slot machine, video poker and a coin pusher. It is a roguelike: every run you win coins on three machines, pay a rising quota, pick charms and buy upgrades; between runs you spend chips on a tech tree, finish missions and achievements, and collect and combine relics.
+A casino-style game for the web browser that combines a slot machine, video poker and a coin pusher. It is a roguelike: every run is one cabinet: reels, a free poker hand with every pull, and a coin pusher that pays out what you win; you pay a rising quota, pick charms and buy upgrades; between runs you spend chips on a tech tree, finish missions and achievements, and collect and combine relics.
 
 It runs in any modern browser with no install and no account.
 
