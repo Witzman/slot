@@ -16,6 +16,9 @@ export interface Mods {
   goldChance: number;
   prizeChance: number;
   pusherPayMul: number;
+  /** highest pusher zone, and the extra payout per zone above 1 */
+  zoneMax: number;
+  zoneStep: number;
   quotaMul: number;
   /** share of the coins kept at round end that is paid as interest (capped) */
   interest: number;
@@ -39,6 +42,8 @@ export function baseMods(): Mods {
     goldChance: 0.08,
     prizeChance: 0.03,
     pusherPayMul: 1,
+    zoneMax: 3,
+    zoneStep: 0.2,
     quotaMul: 1,
     interest: 0,
     freeDropsPerRound: 0,
