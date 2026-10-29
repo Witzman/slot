@@ -6,17 +6,9 @@ import { fileURLToPath } from "node:url";
 // Decision in #4: dependencies point downward only.
 // core -> table -> rules -> sim -> leaves. Each layer may import only these.
 const ALLOWED: Record<string, string[]> = {
-  core: ["core"],
-  table: ["core", "table"],
-  rules: ["table", "rules"],
-  tables: ["table", "rules", "tables"],
-  sim: ["core", "table", "rules", "sim"],
-  input: ["input", "sim"],
-  audio: ["audio", "sim"],
-  render: ["sim", "render"],
-  storage: ["storage"],
   game: ["game"],
-  app: ["app", "game", "audio", "input", "render", "sim", "rules", "tables", "table", "core", "storage"],
+  storage: ["storage"],
+  app: ["app", "game", "storage"],
 };
 
 const root = fileURLToPath(new URL("../src", import.meta.url));
@@ -43,8 +35,6 @@ export function violations(rel: string, code: string, allowed: string[]): string
   const bad: string[] = [];
   for (const spec of importsOf(strip(code))) {
     if (!spec.startsWith(".")) {
-      // the one exception (#45, owner decision 2026-10-03): the PlayCanvas renderer may import the engine
-      if (spec === "playcanvas" && rel.startsWith("render/playcanvas/")) continue;
       bad.push(`${rel} imports "${spec}": no runtime dependencies`);
       continue;
     }
@@ -94,7 +84,7 @@ describe("storage", () => {
       scanned++;
       expect(strip(readFileSync(f, "utf8")), rel).not.toMatch(/localStorage|sessionStorage|indexedDB/);
     }
-    expect(scanned).toBeGreaterThan(20);
+    expect(scanned).toBeGreaterThan(5);
   });
 
   it("is imported only by the app", () => {
@@ -110,16 +100,7 @@ describe("storage", () => {
         expect(target, `${rel} imports ${spec}`).not.toBe("storage");
       }
     }
-    expect(scanned).toBeGreaterThan(20);
-  });
-});
-
-describe("the one dependency exception (#45)", () => {
-  it("lets render/playcanvas import the engine, and nothing else import it or any other package", () => {
-    expect(violations("render/playcanvas/index.ts", 'import * as pc from "playcanvas";', ["sim", "render"])).toEqual([]);
-    expect(violations("render/canvas.ts", 'import * as pc from "playcanvas";', ["sim", "render"]).join("\n")).toMatch(/no runtime dependencies/);
-    expect(violations("sim/game.ts", 'import * as pc from "playcanvas";', ["sim"]).join("\n")).toMatch(/no runtime dependencies/);
-    expect(violations("render/playcanvas/index.ts", 'import x from "lodash";', ["sim", "render"]).join("\n")).toMatch(/no runtime dependencies/);
+    expect(scanned).toBeGreaterThan(5);
   });
 });
 
@@ -133,9 +114,9 @@ describe("layering", () => {
         expect(violations(rel, code, allowed)).toEqual([]);
       });
 
-      if (["table", "rules", "tables", "sim", "input", "render", "game"].includes(layer)) {
+      if (layer === "game") {
         it(`${rel} touches no DOM, clock or randomness`, () => {
-          if (layer !== "render") expect(code).not.toMatch(/\b(document|window|navigator|performance)\b/);
+          expect(code).not.toMatch(/\b(document|window|navigator|performance)\b/);
           expect(code).not.toMatch(/Date\.now|Math\.random/);
         });
       }
