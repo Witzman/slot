@@ -15,7 +15,8 @@ const ALLOWED: Record<string, string[]> = {
   audio: ["audio", "sim"],
   render: ["sim", "render"],
   storage: ["storage"],
-  app: ["app", "audio", "input", "render", "sim", "rules", "tables", "table", "core", "storage"],
+  game: ["game"],
+  app: ["app", "game", "audio", "input", "render", "sim", "rules", "tables", "table", "core", "storage"],
 };
 
 const root = fileURLToPath(new URL("../src", import.meta.url));
@@ -132,7 +133,7 @@ describe("layering", () => {
         expect(violations(rel, code, allowed)).toEqual([]);
       });
 
-      if (["table", "rules", "tables", "sim", "input", "render"].includes(layer)) {
+      if (["table", "rules", "tables", "sim", "input", "render", "game"].includes(layer)) {
         it(`${rel} touches no DOM, clock or randomness`, () => {
           if (layer !== "render") expect(code).not.toMatch(/\b(document|window|navigator|performance)\b/);
           expect(code).not.toMatch(/Date\.now|Math\.random/);
