@@ -1,5 +1,6 @@
-import { ACHIEVEMENTS, type Meta } from "../game/meta";
-import { BOSSES, CHARMS, RELICS, TECH, UPGRADES, upgradeCost } from "../game/content";
+import { ACHIEVEMENTS, type Meta, relicSlots } from "../game/meta";
+import { BOSSES, CHARMS, CURSES, RELICS, RELIC_PERKS, TECH, UPGRADES, upgradeCost } from "../game/content";
+import { eventById } from "../game/events";
 import type { Mods } from "../game/mods";
 import { HAND_LABEL, HAND_ORDER, type HandName, classify, rank, suit } from "../game/poker";
 import { type Run, ZONE_HEAT, canClose, charmPrice, quotaFor, shopRerollPrice, zoneMul } from "../game/run";
@@ -206,19 +207,22 @@ export function bookPanel(v: View): string {
           .join("")
       : `<li class="empty">Missions appear when a run starts.</li>`;
   const ach = ACHIEVEMENTS.map((a) => `<li class="${meta.ach.includes(a.id) ? "done" : ""}"><span><strong>${esc(a.name)}</strong> ${esc(a.text)}</span><em>+${a.chips} chips</em></li>`).join("");
-  const relics = RELICS.map((r) =>
-    meta.relics.includes(r.id)
-      ? `<button class="relic found${v.ui.picked.includes(r.id) ? " picked" : ""}" data-act="pickrelic" data-v="${r.id}"><strong>${esc(r.name)}</strong><span>${esc(r.text)}</span></button>`
-      : `<div class="relic"><strong>???</strong><span>${r.craft ? "Can be crafted" : "Not found yet"}</span></div>`,
-  ).join("");
+  const noRun = !run || run.phase === "over";
+  const relics = RELICS.map((r) => {
+    if (!meta.relics.includes(r.id)) return `<div class="relic"><strong>???</strong><span>${r.craft ? "Can be crafted" : "Not found yet"}</span></div>`;
+    const on = meta.loadout.includes(r.id);
+    const full = !on && meta.loadout.length >= relicSlots(meta);
+    return `<div class="relic found${v.ui.picked.includes(r.id) ? " picked" : ""}${on ? " equipped" : ""}"><strong>${esc(r.name)}</strong><span>${esc(r.text)}</span><span class="perk">${esc(RELIC_PERKS[r.id]?.text ?? "")}</span>
+      <div class="two"><button data-act="pickrelic" data-v="${r.id}">${v.ui.picked.includes(r.id) ? "Picked" : "Combine"}</button><button data-act="equip" data-v="${r.id}" ${noRun && (on || !full) ? "" : "disabled"}>${on ? "Unequip" : "Equip"}</button></div></div>`;
+  }).join("");
   const craft = `<div class="craft"><span>${v.ui.picked.length === 2 ? esc(v.ui.picked.map((id) => RELICS.find((r) => r.id === id)?.name ?? id).join(" + ")) : "Pick two relics to combine"}</span><button data-act="combine" ${v.ui.picked.length === 2 ? "" : "disabled"}>Combine</button></div><p class="hint">${esc(v.ui.craftNote)}</p>`;
-  const charms = run && run.charms.length ? run.charms.map((id) => CHARMS.find((c) => c.id === id)).filter((c) => c !== undefined).map((c) => `<li><strong>${esc(c.name)}</strong> ${esc(c.text)}</li>`).join("") : `<li class="empty">No charms yet.</li>`;
+  const charms = run && run.charms.length ? run.charms.map((id) => CHARMS.find((c) => c.id === id) ?? CURSES.find((c) => c.id === id)).filter((c) => c !== undefined).map((c) => `<li><strong>${esc(c.name)}</strong> ${esc(c.text)}</li>`).join("") : `<li class="empty">No charms yet.</li>`;
   return `<section class="book"><h2>Book</h2>
     <div class="cols">
       <div><h3>Missions this run</h3><ul class="plain">${missions}</ul><h3>Charms this run</h3><ul class="plain">${charms}</ul>
         <h3>Career</h3><p class="hint">${meta.runs} runs · best round ${meta.bestRound} · stake ${meta.maxStake} unlocked · ${meta.life.spins} spins · ${meta.life.hands} hands · ${meta.life.drops} drops · ${meta.life.pusherPaid} coins from the pusher</p></div>
       <div><h3>Achievements ${meta.ach.length}/${ACHIEVEMENTS.length}</h3><ul class="plain">${ach}</ul></div>
-      <div><h3>Relics ${meta.relics.length}/${RELICS.length} <small>(+1 start coin per 2)</small></h3>${craft}<div class="relics">${relics}</div></div>
+      <div><h3>Relics ${meta.relics.length}/${RELICS.length} <small>(+1 start coin per 2)</small></h3><p class="hint">Equipped ${meta.loadout.length}/${relicSlots(meta)} — perks apply to the next run${noRun ? "" : " (locked during a run)"}.</p>${craft}<div class="relics">${relics}</div></div>
     </div></section>`;
 }
 
@@ -238,6 +242,13 @@ export function overlay(v: View): string {
       <p>Slots, video poker and a coin pusher in one run. Win coins on any machine, pay the quota when your turns run out, pick a charm, go deeper. Lose the run, earn chips, grow the tech tree.</p>
       <p class="hint">Each spin, hand or coin drop is one turn.</p>
       ${stakePicker(v)}<button class="big" data-act="newrun">Start run</button></div></div>`;
+  }
+  if (run.phase === "event") {
+    const ev = eventById(run.event);
+    if (!ev) return "";
+    const choices = ev.choices.map((c, i) => `<button class="charm" data-act="event" data-v="${i}" ${!c.can || c.can(run) ? "" : "disabled"}><strong>${esc(c.text)}</strong></button>`).join("");
+    return `<div class="modal"><div class="card-box"><h2>${esc(ev.title)}</h2><p>${esc(ev.text)}</p><div class="charms">${choices}</div>
+      <p class="hint">Coins ${run.coins} · tickets ${run.tickets}</p></div></div>`;
   }
   if (run.phase === "draft") {
     const find = (id: string) => CHARMS.find((c) => c.id === id);

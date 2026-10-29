@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { type Meta, ACHIEVEMENTS, buyTech, canBuy, checkAchievements, fileRelic, finishRun, modsFor, newMeta, restoreMeta } from "../../src/game/meta";
 import { CHARMS, RELICS, TECH } from "../../src/game/content";
-import { baseMods } from "../../src/game/mods";
+import { baseMods as realBase } from "../../src/game/mods";
+
+/** Tests that are not about events switch them off, so no seed decides what they see. */
+const baseMods = () => {
+  const m = realBase();
+  m.eventChance = 0;
+  return m;
+};
 import { type Run, beginRound, canClose, closeRound, drawPoker, dropAt, drainEvents, pickCharm, quotaFor, rerollDraft, spinSlot, startRun, tickPusher } from "../../src/game/run";
 import { makeRng } from "../../src/game/rng";
 
@@ -196,7 +203,9 @@ describe("a run", () => {
     run.turnsLeft = 0;
     const meta = newMeta();
     meta.tech = ["purse1", "time1", "reroll"];
-    closeRound(run, modsFor(meta, []), (c) => modsFor(meta, c));
+    const quiet = modsFor(meta, []);
+    quiet.eventChance = 0;
+    closeRound(run, quiet, (c) => modsFor(meta, c));
     const first = [...run.draft];
     expect(rerollDraft(run)).toBe(true);
     expect(run.draft.some((d) => first.includes(d))).toBe(false);
@@ -260,7 +269,7 @@ describe("the meta game", () => {
       expect(t.requires.every((r) => ids.has(r)), t.id).toBe(true);
       const m = baseMods();
       t.effect(m);
-      expect(JSON.stringify(m), t.id).not.toBe(JSON.stringify(baseMods()));
+      if (t.id !== "case1" && t.id !== "case2") expect(JSON.stringify(m), t.id).not.toBe(JSON.stringify(baseMods())); // the cases add relic slots, not mods
     }
     const meta = newMeta();
     meta.chips = 10_000;
@@ -782,3 +791,226 @@ describe("stakes", () => {
 });
 
 const restoreRun_meta = restoreMeta;
+
+describe("relic perks", () => {
+  it("gives every relic a perk that changes the mods, crafted ones more than found ones", async () => {
+    const { RELIC_PERKS } = await import("../../src/game/content");
+    for (const r of RELICS) {
+      const perk = RELIC_PERKS[r.id];
+      expect(perk, r.id).toBeDefined();
+      const m = realBase();
+      perk!.effect(m);
+      expect(JSON.stringify(m), r.id).not.toBe(JSON.stringify(realBase()));
+    }
+    expect(Object.keys(RELIC_PERKS).sort()).toEqual(RELICS.map((r) => r.id).sort());
+  });
+
+  it("equips owned relics into 2 slots, 3 and 4 with the display nodes, and unequips", async () => {
+    const { toggleEquip, relicSlots } = await import("../../src/game/meta");
+    const meta = newMeta();
+    meta.relics = ["penny", "dice", "tooth", "cat", "key"];
+    expect(relicSlots(meta)).toBe(2);
+    expect(toggleEquip(meta, "penny")).toBe(true);
+    expect(toggleEquip(meta, "dice")).toBe(true);
+    expect(toggleEquip(meta, "tooth")).toBe(false);
+    expect(toggleEquip(meta, "eye")).toBe(false); // not owned
+    expect(toggleEquip(meta, "penny")).toBe(true); // off
+    expect(meta.loadout).toEqual(["dice"]);
+    meta.tech = ["purse1", "case1", "case2"];
+    expect(relicSlots(meta)).toBe(4);
+  });
+
+  it("applies the equipped perks to the mods of a run, and no others", () => {
+    const meta = newMeta();
+    meta.relics = ["penny", "horse"];
+    meta.loadout = ["penny"];
+    const m = modsFor(meta, []);
+    expect(m.freeDropsPerRound).toBe(1);
+    expect(m.slotWinMul).toBe(1);
+    meta.loadout = ["penny", "horse"];
+    expect(modsFor(meta, []).slotWinMul).toBeCloseTo(1.1);
+  });
+
+  it("does not apply a loadout that is larger than the slots", () => {
+    const meta = newMeta();
+    meta.relics = ["penny", "dice", "tooth"];
+    meta.loadout = ["penny", "dice", "tooth"];
+    expect(modsFor(meta, []).goldChance).toBeCloseTo(0.08);
+  });
+
+  it("starts a run with the tickets of the key relics", () => {
+    const meta = newMeta();
+    meta.relics = ["key", "vault"];
+    meta.tech = ["purse1", "case1"];
+    meta.loadout = ["key", "vault"];
+    const m = modsFor(meta, []);
+    expect(startRun(1, m).tickets).toBe(4);
+  });
+
+  it("is kept in the save, owned relics only, within the slots", async () => {
+    const saved = restoreMeta({ v: 1, relics: ["penny", "dice", "tooth"], loadout: ["penny", "eye", "dice", "tooth"] });
+    expect(saved.loadout).toEqual(["penny", "dice"]);
+    expect(restoreMeta({ v: 1 }).loadout).toEqual([]);
+  });
+});
+
+describe("run events", () => {
+
+  const at = async (eventId: string, tweak?: (r: Run) => void): Promise<Run> => {
+    const run = startRun(5, baseMods());
+    run.coins = 100;
+    run.phase = "event";
+    run.event = eventId;
+    tweak?.(run);
+    return run;
+  };
+
+  it("rolls an event only with the chance of the mods, and only an eligible one", async () => {
+    const { rollEvent, EVENTS } = await import("../../src/game/events");
+    const run = startRun(3, baseMods());
+    expect(rollEvent(run, 0)).toBeNull();
+    const ids = new Set<string | null>();
+    for (let i = 0; i < 300; i++) ids.add(rollEvent(run, 1));
+    expect(ids.has(null)).toBe(false);
+    expect(ids.has("exorcist")).toBe(false); // no curse to lift
+    run.charms.push("karma");
+    let seen = false;
+    for (let i = 0; i < 400 && !seen; i++) seen = rollEvent(run, 1) === "exorcist";
+    expect(seen).toBe(true);
+    expect(EVENTS.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("follows a cleared round: the event screen first, then the charm call", () => {
+    const run = startRun(5, baseMods());
+    const m = baseMods();
+    m.eventChance = 1;
+    run.coins = 500;
+    run.turnsLeft = 0;
+    closeRound(run, m, mk);
+    expect(run.phase).toBe("event");
+    expect(run.event).not.toBeNull();
+    expect(run.draft).toEqual([]);
+  });
+
+  it("applies a choice, counts it, and opens the call", async () => {
+    const { chooseEvent } = await import("../../src/game/run");
+    const run = await at("shower");
+    expect(chooseEvent(run, 1, mk)).toBe(true);
+    expect(run.coins).toBe(108);
+    expect(run.stats.events).toBe(1);
+    expect(run.phase).toBe("draft");
+    expect(run.draft).toHaveLength(3);
+    expect(run.event).toBeNull();
+    expect(chooseEvent(run, 0, mk)).toBe(false);
+  });
+
+  it("refuses a choice that cannot be taken and a bad index, and changes nothing", async () => {
+    const { chooseEvent } = await import("../../src/game/run");
+    const run = await at("well", (r) => (r.coins = 5));
+    expect(chooseEvent(run, 0, mk)).toBe(false);
+    expect(chooseEvent(run, 7, mk)).toBe(false);
+    expect([run.coins, run.phase, run.stats.events]).toEqual([5, "event", 0]);
+  });
+
+  it("curses: the suitcase pays 20 coins and adds Bad Karma, which cuts slot wins; never twice", async () => {
+    const { chooseEvent } = await import("../../src/game/run");
+    const run = await at("suitcase");
+    chooseEvent(run, 0, mk);
+    expect(run.coins).toBe(120);
+    expect(run.charms).toContain("karma");
+    expect(modsFor(newMeta(), run.charms).slotWinMul).toBeCloseTo(0.9);
+    const again = await at("suitcase", (r) => r.charms.push("karma"));
+    expect(chooseEvent(again, 0, mk)).toBe(false);
+  });
+
+  it("debt raises the quota and haunting takes a turn, on top of what the run has", () => {
+    const meta = newMeta();
+    expect(modsFor(meta, ["debt"]).quotaMul).toBeCloseTo(1.15);
+    expect(modsFor(meta, ["haunted"]).turns).toBe(modsFor(meta, []).turns - 1);
+  });
+
+  it("the well gives a free uncommon or rare charm for 10 coins", async () => {
+    const { chooseEvent } = await import("../../src/game/run");
+    const run = await at("well");
+    chooseEvent(run, 0, mk);
+    expect(run.coins).toBe(90);
+    expect(run.charms).toHaveLength(1);
+    expect(CHARMS.find((c) => c.id === run.charms[0])?.rarity).not.toBe("common");
+  });
+
+  it("dice: win 30 or lose 15, and both happen over many rolls", async () => {
+    const { chooseEvent } = await import("../../src/game/run");
+    const outcomes = new Set<number>();
+    for (let seed = 1; seed < 40; seed++) {
+      const run = startRun(seed, baseMods());
+      run.coins = 100;
+      run.phase = "event";
+      run.event = "dice";
+      chooseEvent(run, 0, mk);
+      outcomes.add(run.coins);
+    }
+    expect([...outcomes].sort((a, b) => a - b)).toEqual([85, 130]);
+  });
+
+  it("mechanic: pays 8 coins for one upgrade level, refuses when every upgrade is maxed", async () => {
+    const { chooseEvent } = await import("../../src/game/run");
+    const { UPGRADES } = await import("../../src/game/content");
+    const run = await at("mechanic");
+    chooseEvent(run, 0, mk);
+    expect(run.coins).toBe(92);
+    expect(Object.values(run.upgrades).reduce((a, b) => a + b, 0)).toBe(1);
+    const maxed = await at("mechanic", (r) => UPGRADES.forEach((u) => (r.upgrades[u.id] = u.max)));
+    expect(chooseEvent(maxed, 0, mk)).toBe(false);
+  });
+
+  it("shower pours 25 coins on the shelf, lucky raises the zone, loan and haunted give their price", async () => {
+    const { chooseEvent } = await import("../../src/game/run");
+    const shower = await at("shower");
+    chooseEvent(shower, 0, mk);
+    expect(shower.pour.reduce((n, k) => n + (k === "gold" ? 5 : 1), 0)).toBe(25);
+    const lucky = await at("lucky");
+    chooseEvent(lucky, 0, mk);
+    expect(lucky.zone).toBe(2);
+    const loan = await at("loan");
+    chooseEvent(loan, 0, mk);
+    expect([loan.coins, loan.charms]).toEqual([140, ["debt"]]);
+    const haunted = await at("haunted");
+    chooseEvent(haunted, 0, mk);
+    expect([haunted.tickets, haunted.charms]).toEqual([3, ["haunted"]]);
+  });
+
+  it("exorcist lifts one curse for 2 tickets", async () => {
+    const { chooseEvent } = await import("../../src/game/run");
+    const run = await at("exorcist", (r) => ((r.charms = ["karma", "clover"]), (r.tickets = 2)));
+    chooseEvent(run, 0, mk);
+    expect(run.charms).toEqual(["clover"]);
+    expect(run.tickets).toBe(0);
+    const poor = await at("exorcist", (r) => ((r.charms = ["karma"]), (r.tickets = 1)));
+    expect(chooseEvent(poor, 0, mk)).toBe(false);
+  });
+
+  it("curses are never offered by the call or the shop, and survive a save; an event survives too", async () => {
+    const { drawCharms, restoreRun } = await import("../../src/game/run");
+    const rng = makeRng(1);
+    for (let i = 0; i < 200; i++) expect(drawCharms(rng, [], [], 7).some((id) => ["karma", "debt", "haunted"].includes(id))).toBe(false);
+    const run = await at("suitcase", (r) => r.charms.push("karma"));
+    const back = restoreRun(JSON.parse(JSON.stringify(run)));
+    expect(back).toMatchObject({ phase: "event", event: "suitcase", charms: ["karma"] });
+    const bad = JSON.parse(JSON.stringify(run));
+    bad.event = "nope";
+    expect(restoreRun(bad)).toBeNull();
+    delete bad.stats.events;
+    bad.event = "suitcase";
+    expect(restoreRun(bad)?.stats.events).toBe(0);
+  });
+});
+
+describe("event and loadout achievements", () => {
+  it("unlock from events faced and relics equipped", () => {
+    const meta = newMeta();
+    meta.loadout = ["penny", "dice"];
+    const run = startRun(1, baseMods());
+    run.stats.events = 3;
+    expect(checkAchievements(meta, run).map((a) => a.id)).toEqual(expect.arrayContaining(["road3", "gear2"]));
+  });
+});

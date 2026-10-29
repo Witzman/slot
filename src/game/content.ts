@@ -20,6 +20,8 @@ export const TECH: readonly TechNode[] = [
   { id: "haggle", branch: "run", name: "Haggler", text: "Quotas are 10% lower.", cost: 12, requires: ["purse2"], effect: (m) => void (m.quotaMul *= 0.9) },
   { id: "reroll", branch: "run", name: "Second Look", text: "Re-draw the charm choice once per round.", cost: 9, requires: ["time1"], effect: (m) => void (m.rerolls += 1) },
 
+  { id: "case1", branch: "run", name: "Display Case", text: "Equip a third relic.", cost: 6, requires: ["purse1"], effect: () => {} },
+  { id: "case2", branch: "run", name: "Trophy Room", text: "Equip a fourth relic.", cost: 14, requires: ["case1"], effect: () => {} },
   { id: "lines3", branch: "slot", name: "Three Lines", text: "Slot plays 3 paylines.", cost: 4, requires: [], effect: (m) => void (m.slotLines = Math.max(m.slotLines, 3)) },
   { id: "lines5", branch: "slot", name: "Five Lines", text: "Slot plays 5 paylines.", cost: 10, requires: ["lines3"], effect: (m) => void (m.slotLines = Math.max(m.slotLines, 5)) },
   { id: "slotbet", branch: "slot", name: "High Roller Reels", text: "Slot max bet 5 per line.", cost: 7, requires: ["lines3"], effect: (m) => void (m.slotMaxBet = 5) },
@@ -183,3 +185,43 @@ export const BOSSES: readonly Boss[] = [
 export const STAKE_QUOTA = 0.12;
 export const STAKE_TURNS = 3;
 export const MAX_STAKE = 5;
+
+/** Relic slots: 2, plus one for each display tech node. */
+export const BASE_RELIC_SLOTS = 2;
+
+export interface Perk {
+  text: string;
+  effect: Effect;
+}
+
+/** What an equipped relic does for a run. Crafted relics are stronger. */
+export const RELIC_PERKS: Readonly<Record<string, Perk>> = {
+  penny: { text: "+1 free pusher drop every round.", effect: (m) => void (m.freeDropsPerRound += 1) },
+  dice: { text: "+1 seven on the reels.", effect: (m) => void (m.weights.seven += 1) },
+  tooth: { text: "+5% gold coins on the pusher.", effect: (m) => void (m.goldChance += 0.05) },
+  cat: { text: "+1 coin scatter on the reels.", effect: (m) => void (m.weights.coin += 1) },
+  key: { text: "Start each run with 1 ticket.", effect: (m) => void (m.startTickets += 1) },
+  chip: { text: "Jacks or better pays 2.", effect: (m) => void (m.pokerPay.jacks = Math.max(m.pokerPay.jacks, 2)) },
+  horse: { text: "Slot wins pay 10% more.", effect: (m) => void (m.slotWinMul *= 1.1) },
+  ace: { text: "Poker wins pay 10% more.", effect: (m) => void (m.pokerMul *= 1.1) },
+  bell: { text: "Bell lines pay 1.5 times.", effect: symPay("bell", 1.5) },
+  jukebox: { text: "Each pusher zone pays 5% more.", effect: (m) => void (m.zoneStep += 0.05) },
+  crown: { text: "Quotas are 5% lower.", effect: (m) => void (m.quotaMul *= 0.95) },
+  eye: { text: "+1 wild star on the reels.", effect: (m) => void (m.weights.wild += 1) },
+  luckycharm: { text: "Slot wins pay 20% more, +1 free drop every round.", effect: (m) => void ((m.slotWinMul *= 1.2), (m.freeDropsPerRound += 1)) },
+  trickdeck: { text: "Poker wins pay 20% more, two pair pays 3.", effect: (m) => void ((m.pokerMul *= 1.2), (m.pokerPay.twoPair = Math.max(m.pokerPay.twoPair, 3))) },
+  goldbell: { text: "Bell lines pay 2 times, +5% gold coins.", effect: (m) => void (symPay("bell", 2)(m), (m.goldChance += 0.05)) },
+  idol: { text: "+1 turn every round, +1 coin scatter.", effect: (m) => void ((m.turns += 1), (m.weights.coin += 1)) },
+  vault: { text: "Start each run with 3 tickets.", effect: (m) => void (m.startTickets += 3) },
+  musicbox: { text: "Zones pay 10% more each, zone max +1 (up to 5).", effect: (m) => void ((m.zoneStep += 0.1), (m.zoneMax = Math.min(5, m.zoneMax + 1))) },
+  throne: { text: "Quotas are 10% lower, +10% interest.", effect: (m) => void ((m.quotaMul *= 0.9), (m.interest += 0.1)) },
+  fortune: { text: "+2 wild stars on the reels.", effect: (m) => void (m.weights.wild += 2) },
+  grand: { text: "Slot wins pay 30% more, seven lines pay 1.5 times, +1 turn.", effect: (m) => void ((m.slotWinMul *= 1.3), symPay("seven", 1.5)(m), (m.turns += 1)) },
+};
+
+/** Curses are charms with a price: the run carries them, the call and the shop never offer them. */
+export const CURSES: readonly Omit<Charm, "rarity">[] = [
+  { id: "karma", name: "Bad Karma", text: "Slot wins pay 10% less.", effect: (m) => void (m.slotWinMul *= 0.9) },
+  { id: "debt", name: "Debt", text: "Quotas are 15% higher.", effect: (m) => void (m.quotaMul *= 1.15) },
+  { id: "haunted", name: "Haunted", text: "1 turn fewer every round.", effect: (m) => void (m.turns = Math.max(4, m.turns - 1)) },
+];
