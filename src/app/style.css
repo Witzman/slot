@@ -127,6 +127,10 @@ nav button { padding: 8px 4px; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
 
 .boss { margin: 6px 0; padding: 6px 10px; border: 1px solid var(--pink); border-radius: 8px; background: rgba(255, 61, 129, 0.12); color: #ffd6e6; }
+.relic .perk { color: var(--teal); }
+.relic .two { display: flex; gap: 6px; margin-top: 6px; }
+.relic .two button { flex: 1; padding: 4px 6px; font-size: 0.8rem; }
+.relic.equipped { border-color: var(--teal); box-shadow: 0 0 10px rgba(62, 230, 200, 0.3); }
 .card-box.wide { max-width: 860px; }
 .charm.uncommon { border-color: var(--teal); }
 .charm.rare { border-color: var(--pink); box-shadow: 0 0 14px rgba(255, 61, 129, 0.35); }

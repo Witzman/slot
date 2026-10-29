@@ -1,9 +1,10 @@
-import { BOSSES, BOSS_EVERY, CHARMS, RARITY_PRICE, RARITY_WEIGHT, UPGRADES, upgradeCost } from "./content";
+import { BOSSES, BOSS_EVERY, CHARMS, CURSES, RARITY_PRICE, RARITY_WEIGHT, UPGRADES, upgradeCost } from "./content";
 import type { Mods } from "./mods";
 import { type HandName, HAND_ORDER, type PokerState, classify, deal, draw, freshPoker, payFor, toggleHold } from "./poker";
 import { type CoinKind, type Pusher, W, dropCoin, newPusher, stepMany } from "./pusher";
 import { type Rng, int, makeRng, next, weighted } from "./rng";
 import { type SlotResult, spin } from "./slot";
+import { eventById, rollEvent } from "./events";
 import { type MissionState, drawMissions, updateMissions } from "./missions";
 
 export interface RunStats {
@@ -20,9 +21,10 @@ export interface RunStats {
   relics: number;
   maxCoins: number;
   bosses: number;
+  events: number;
 }
 
-export type RunPhase = "play" | "draft" | "over";
+export type RunPhase = "play" | "event" | "draft" | "over";
 
 export interface Run {
   rng: Rng;
@@ -31,6 +33,8 @@ export interface Run {
   stake: number;
   /** boss of the current round, or null */
   boss: string | null;
+  /** the event waiting for a choice while the phase is "event" */
+  event: string | null;
   completed: number;
   turnsLeft: number;
   coins: number;
@@ -85,6 +89,7 @@ export function startRun(seed: number, m: Mods, stake = 0): Run {
     round: 1,
     stake,
     boss: null,
+    event: null,
     completed: 0,
     turnsLeft: m.turns,
     coins: m.startCoins,
@@ -94,7 +99,7 @@ export function startRun(seed: number, m: Mods, stake = 0): Run {
     upgrades: {},
     phase: "play",
     draft: [],
-    tickets: 0,
+    tickets: m.startTickets,
     shop: [],
     shopRerolls: 0,
     rerollsLeft: m.rerolls,
@@ -104,7 +109,7 @@ export function startRun(seed: number, m: Mods, stake = 0): Run {
     zoneHeat: 0,
     zoneIdle: 0,
     pour: [],
-    stats: { spins: 0, slotWins: 0, bestSlotWin: 0, jackpots: 0, hands: 0, goodHands: 0, bestHand: 0, drops: 0, pusherPaid: 0, relics: 0, maxCoins: m.startCoins, bosses: 0 },
+    stats: { spins: 0, slotWins: 0, bestSlotWin: 0, jackpots: 0, hands: 0, goodHands: 0, bestHand: 0, drops: 0, pusherPaid: 0, relics: 0, maxCoins: m.startCoins, bosses: 0, events: 0 },
     missions: [],
     chipsPending: 0,
     events: [],
@@ -185,11 +190,35 @@ function settle(run: Run, m: Mods, mk: (charms: string[]) => Mods): void {
   run.round++;
   run.tickets++;
   run.shopRerolls = 0;
+  const event = rollEvent(run, m.eventChance);
+  if (event) {
+    run.event = event;
+    run.phase = "event";
+    return;
+  }
+  openDraft(run, m, mk);
+}
+
+/** The charm call and the shop after a cleared round (or the next round at once when every charm is owned). */
+function openDraft(run: Run, m: Mods, mk: (charms: string[]) => Mods): void {
   if (CHARMS.every((c) => run.charms.includes(c.id))) return beginRound(run, mk);
   run.draft = drawCharms(run.rng, run.charms, [], 3);
   run.shop = drawCharms(run.rng, run.charms, run.draft, 4);
   run.rerollsLeft = m.rerolls;
   run.phase = "draft";
+}
+
+/** Take choice 0 or 1 of the waiting event; the charm call follows. Mods are read after the choice (a curse or a blessing counts). */
+export function chooseEvent(run: Run, index: number, mk: (charms: string[]) => Mods): boolean {
+  const ev = eventById(run.event);
+  const choice = ev?.choices[index];
+  if (run.phase !== "event" || !ev || !choice) return false;
+  if (choice.can && !choice.can(run)) return false;
+  run.events.push(`${ev.title}: ${choice.apply(run)}`);
+  run.stats.events++;
+  run.event = null;
+  openDraft(run, mk(run.charms), mk);
+  return true;
 }
 
 /** Up to n charms the run does not own and that are not in `skip`, drawn by rarity without repeats. */
@@ -401,9 +430,9 @@ export function restoreRun(raw: unknown): Run | null {
   if (
     !isNum(o.rng?.s) || !isNum(o.round) || !isNum(o.coins) || !isNum(o.turnsLeft) || !isNum(o.quota) || !isNum(o.completed) || !isNum(o.freeDrops) ||
     !coinsOk || !isNum(o.pusher?.t) || !isNum(o.pusher?.nextId) ||
-    !Array.isArray(o.charms) || !o.charms.every((c) => known.includes(c)) ||
+    !Array.isArray(o.charms) || !o.charms.every((c) => known.includes(c) || CURSES.some((x) => x.id === c)) ||
     !Array.isArray(o.draft) || !o.draft.every((c) => known.includes(c)) ||
-    !["play", "draft", "over"].includes(o.phase as string) ||
+    !["play", "event", "draft", "over"].includes(o.phase as string) ||
     !o.poker || !["bet", "hold"].includes(o.poker.phase) || !Array.isArray(o.poker.hand) || !Array.isArray(o.poker.deck) || !Array.isArray(o.poker.held) ||
     !o.stats || !Array.isArray(o.missions) || !isNum(o.chipsPending) || !isNum(o.rerollsLeft)
   ) {
@@ -419,6 +448,8 @@ export function restoreRun(raw: unknown): Run | null {
   const shop = Array.isArray(o.shop) ? o.shop.filter((c) => known.includes(c)) : [];
   const pour = Array.isArray(o.pour) ? o.pour.filter((k) => k === "coin" || k === "gold") : [];
   const bossId = BOSSES.some((b) => b.id === o.boss) ? (o.boss as string) : null;
-  const stats = { ...(o.stats as RunStats), bosses: Math.max(0, Math.floor(num0((o.stats as Partial<RunStats>).bosses))) };
-  return { ...(o as Run), stake: Math.min(5, Math.max(0, Math.floor(num0(o.stake)))), boss: bossId, stats, tickets: Math.max(0, Math.floor(num0(o.tickets))), shop, shopRerolls: Math.max(0, Math.floor(num0(o.shopRerolls))), zone, zoneHeat: Math.max(0, num0(o.zoneHeat)), zoneIdle: Math.max(0, num0(o.zoneIdle)), pour, upgrades, events: [], found: 0, finished: o.finished === true, overReason: o.overReason ?? "" };
+  const eventId = eventById(o.event ?? null) ? (o.event as string) : null;
+  const stats = { ...(o.stats as RunStats), events: Math.max(0, Math.floor(num0((o.stats as Partial<RunStats>).events))), bosses: Math.max(0, Math.floor(num0((o.stats as Partial<RunStats>).bosses))) };
+  if (o.phase === "event" && !eventId) return null;
+  return { ...(o as Run), stake: Math.min(5, Math.max(0, Math.floor(num0(o.stake)))), boss: bossId, event: o.phase === "event" ? eventId : null, stats, tickets: Math.max(0, Math.floor(num0(o.tickets))), shop, shopRerolls: Math.max(0, Math.floor(num0(o.shopRerolls))), zone, zoneHeat: Math.max(0, num0(o.zoneHeat)), zoneIdle: Math.max(0, num0(o.zoneIdle)), pour, upgrades, events: [], found: 0, finished: o.finished === true, overReason: o.overReason ?? "" };
 }

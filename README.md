@@ -25,6 +25,7 @@ The engine is deterministic: a fixed 1 ms physics step, a seeded random generato
 
 Newest first. A short summary of what was added, no details.
 
+- **Relic perks and run events:** equip relics for passive bonuses before a run; between rounds a crossroads event offers two choices, with curses as the price.
 - **Bosses and stakes:** every third round is a boss round with its own rule and a higher quota; beating a boss pays tickets, chips and a relic and unlocks harder stakes.
 - **Charm shop:** run tickets, a shop next to the free charm call, per-symbol charms, 41 charms in all.
 - **Pusher zones:** a zone level that rises with payouts and multiplies them.

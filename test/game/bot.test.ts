@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { modsFor, newMeta } from "../../src/game/meta";
-import { type Run, closeRound, drawPoker, dropAt, holdCard, pickCharm, spinSlot, startRun, tickPusher } from "../../src/game/run";
+import { type Run, chooseEvent, closeRound, drawPoker, dropAt, holdCard, pickCharm, spinSlot, startRun, tickPusher } from "../../src/game/run";
 import { rank } from "../../src/game/poker";
 import { makeRng, int } from "../../src/game/rng";
 
@@ -13,6 +13,10 @@ function play(seed: number, tech: string[]): Run {
   const pick = makeRng(seed ^ 0x55);
   for (let i = 0; i < 3000 && run.phase !== "over"; i++) {
     const m = mk(run.charms);
+    if (run.phase === "event") {
+      chooseEvent(run, 1, mk);
+      continue;
+    }
     if (run.phase === "draft") {
       pickCharm(run, run.draft[0] as string, mk);
       continue;

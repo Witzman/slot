@@ -1,4 +1,4 @@
-import { BOSSES, CHARMS, MAX_STAKE, RELICS, STAKE_QUOTA, STAKE_TURNS, TECH, UPGRADES } from "./content";
+import { BASE_RELIC_SLOTS, BOSSES, CHARMS, CURSES, MAX_STAKE, RELICS, RELIC_PERKS, STAKE_QUOTA, STAKE_TURNS, TECH, UPGRADES } from "./content";
 import { type Mods, baseMods } from "./mods";
 import type { Run } from "./run";
 import { type Rng, weighted } from "./rng";
@@ -16,10 +16,12 @@ export interface Meta {
   seedCounter: number;
   /** highest stake a run may start at */
   maxStake: number;
+  /** relics equipped for the next run */
+  loadout: string[];
 }
 
 export function newMeta(): Meta {
-  return { v: 1, chips: 0, tech: [], relics: [], ach: [], runs: 0, bestRound: 1, life: { spins: 0, hands: 0, drops: 0, pusherPaid: 0 }, seedCounter: 1, maxStake: 0 };
+  return { v: 1, chips: 0, tech: [], relics: [], ach: [], runs: 0, bestRound: 1, life: { spins: 0, hands: 0, drops: 0, pusherPaid: 0 }, seedCounter: 1, maxStake: 0, loadout: [] };
 }
 
 const num = (x: unknown, d = 0): number => (typeof x === "number" && Number.isFinite(x) && x >= 0 ? Math.floor(x) : d);
@@ -32,25 +34,44 @@ export function restoreMeta(raw: unknown): Meta {
   if (o.v !== 1) return newMeta();
   const life = (typeof o.life === "object" && o.life !== null ? o.life : {}) as Record<string, unknown>;
   const tech = ids(o.tech, TECH.map((t) => t.id)).filter((id, _, all) => (TECH.find((t) => t.id === id)?.requires ?? []).every((r) => all.includes(r)));
+  const owned = ids(o.relics, RELICS.map((r) => r.id));
+  const slots = BASE_RELIC_SLOTS + tech.filter((t) => t === "case1" || t === "case2").length;
   return {
     v: 1,
     chips: num(o.chips),
     tech,
-    relics: ids(o.relics, RELICS.map((r) => r.id)),
+    relics: owned,
     ach: ids(o.ach, ACH_IDS),
     runs: num(o.runs),
     bestRound: Math.max(1, num(o.bestRound, 1)),
     life: { spins: num(life.spins), hands: num(life.hands), drops: num(life.drops), pusherPaid: num(life.pusherPaid) },
     seedCounter: Math.max(1, num(o.seedCounter, 1)),
     maxStake: Math.min(MAX_STAKE, num(o.maxStake)),
+    loadout: ids(o.loadout, Object.keys(RELIC_PERKS)).filter((id) => owned.includes(id)).slice(0, slots),
   };
+}
+
+export const relicSlots = (meta: Meta): number => BASE_RELIC_SLOTS + meta.tech.filter((t) => t === "case1" || t === "case2").length;
+
+/** Equip or unequip an owned relic. A full loadout refuses a new one. */
+export function toggleEquip(meta: Meta, id: string): boolean {
+  if (!meta.relics.includes(id) || !RELIC_PERKS[id]) return false;
+  const i = meta.loadout.indexOf(id);
+  if (i >= 0) {
+    meta.loadout.splice(i, 1);
+    return true;
+  }
+  if (meta.loadout.length >= relicSlots(meta)) return false;
+  meta.loadout.push(id);
+  return true;
 }
 
 export function modsFor(meta: Meta, charms: readonly string[], upgrades: Readonly<Record<string, number>> = {}, boss: string | null = null, stake = 0): Mods {
   const m = baseMods();
   for (const id of meta.tech) TECH.find((t) => t.id === id)?.effect(m);
   m.startCoins += Math.floor(meta.relics.length / 2); // the collection pays: 1 coin per 2 relics
-  for (const id of charms) CHARMS.find((c) => c.id === id)?.effect(m);
+  for (const id of meta.loadout.slice(0, relicSlots(meta))) RELIC_PERKS[id]?.effect(m);
+  for (const id of charms) (CHARMS.find((c) => c.id === id) ?? CURSES.find((c) => c.id === id))?.effect(m);
   for (const u of UPGRADES) if ((upgrades[u.id] ?? 0) > 0) u.effect(m, upgrades[u.id] as number);
   m.quotaMul *= 1 + STAKE_QUOTA * stake;
   if (stake >= STAKE_TURNS) m.turns -= 1;
@@ -116,6 +137,8 @@ export const ACHIEVEMENTS: readonly Achievement[] = [
   { id: "boss3", name: "Boss Rush", text: "Beat three bosses in one run.", chips: 10, test: (_, r) => (r?.stats.bosses ?? 0) >= 3 },
   { id: "stake1", name: "Raising the Stakes", text: "Unlock stake 1.", chips: 3, test: (m) => m.maxStake >= 1 },
   { id: "stake3", name: "High Stakes Hero", text: "Unlock stake 3.", chips: 8, test: (m) => m.maxStake >= 3 },
+  { id: "road3", name: "Road Warrior", text: "Face 3 events in one run.", chips: 4, test: (_, r) => (r?.stats.events ?? 0) >= 3 },
+  { id: "gear2", name: "Dressed for the Job", text: "Equip 2 relics.", chips: 3, test: (m) => m.loadout.length >= 2 },
   { id: "tech5", name: "Engineer", text: "Own 5 tech upgrades.", chips: 3, test: (m) => m.tech.length >= 5 },
 ];
 const ACH_IDS = ACHIEVEMENTS.map((a) => a.id);

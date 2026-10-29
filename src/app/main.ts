@@ -1,8 +1,8 @@
 import "./style.css";
-import { type Meta, buyTech, combine, checkAchievements, fileRelic, finishRun, modsFor } from "../game/meta";
+import { type Meta, buyTech, combine, toggleEquip, checkAchievements, fileRelic, finishRun, modsFor } from "../game/meta";
 import { RELICS, CHARMS } from "../game/content";
 import { HAND_LABEL } from "../game/poker";
-import { type Run, type Refusal, buyCharm, buyUpgrade, closeRound, drainEvents, drawPoker, dropAt, holdCard, pickCharm, rerollDraft, rerollShop, spinSlot, startRun, tickPusher } from "../game/run";
+import { type Run, type Refusal, buyCharm, buyUpgrade, chooseEvent, closeRound, drainEvents, drawPoker, dropAt, holdCard, pickCharm, rerollDraft, rerollShop, spinSlot, startRun, tickPusher } from "../game/run";
 import { type Sym, SYMS, COLS, ROWS } from "../game/slot";
 import { localStore } from "../storage";
 import { createPusherCanvas } from "./pusher-view";
@@ -101,7 +101,7 @@ async function boot(): Promise<void> {
         ui.overChips = finishRun(meta, run);
         sfx.lose();
       }
-      if (run.phase === "draft" && lastPhase !== "draft") sfx.draft();
+      if ((run.phase === "draft" || run.phase === "event") && lastPhase !== run.phase) sfx.draft();
       lastPhase = run.phase;
     }
     for (const a of checkAchievements(meta, run)) {
@@ -186,6 +186,18 @@ async function boot(): Promise<void> {
         ui.muted = !isMuted();
         setMuted(ui.muted);
         render();
+        break;
+      case "equip":
+        if ((!run || run.phase === "over") && toggleEquip(meta, value)) {
+          sfx.click();
+          changed();
+        }
+        break;
+      case "event":
+        if (run && chooseEvent(run, Number(value), mk)) {
+          sfx.gold();
+          changed();
+        }
         break;
       case "stake":
         ui.stake = Math.min(meta.maxStake, Math.max(0, ui.stake + Number(value)));

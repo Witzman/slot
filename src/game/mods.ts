@@ -1,4 +1,5 @@
 import { BASE_PAY, type HandName } from "./poker";
+import { EVENT_CHANCE } from "./events";
 import { BASE_WEIGHTS, SYMS, type Sym } from "./slot";
 
 /** Everything the tech tree and the charms of a run can change. Built fresh from the base by `applyAll`. */
@@ -27,6 +28,10 @@ export interface Mods {
   freeDropsPerRound: number;
   /** charm re-draws a round may have (the tree gives one per run) */
   rerolls: number;
+  /** tickets a run starts with */
+  startTickets: number;
+  /** chance that a cleared round is followed by an event */
+  eventChance: number;
 }
 
 export function baseMods(): Mods {
@@ -51,6 +56,8 @@ export function baseMods(): Mods {
     interest: 0,
     freeDropsPerRound: 0,
     rerolls: 0,
+    startTickets: 0,
+    eventChance: EVENT_CHANCE,
   };
 }
 
