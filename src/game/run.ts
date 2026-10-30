@@ -3,7 +3,7 @@ import type { Mods } from "./mods";
 import { type Rng, int, makeRng, weighted } from "./rng";
 import { HAND_ORDER } from "./hands";
 import { type CardKind, cardUpgradeCost, applyCardUpgrade } from "./cards-shop";
-import { type CardUpgrade, type Deal, LINES, type RoundResult, deal, drawRound } from "./round";
+import { type CardUpgrade, type Deal, type Hold, LINES, type RoundResult, deal, drawRound } from "./round";
 import { eventById, rollEvent } from "./events";
 import { type MissionState, drawMissions, updateMissions } from "./missions";
 
@@ -297,7 +297,7 @@ export function dealRound(run: Run, m: Mods, bet: number): Refusal | Deal {
 }
 
 /** Hold rows, columns (and single cards with the tree's node) and draw. Only the last draw of a round pays; the win goes into the wallet. */
-export function drawHand(run: Run, m: Mods, hold: { rows: number[]; cols: number[]; cells: number[] }): RoundResult | "bad-hold" | "no-hand" {
+export function drawHand(run: Run, m: Mods, hold: Hold): RoundResult | "bad-hold" | "no-hand" {
   const d = run.hand;
   if (run.phase !== "play" || d === null || d.phase !== "hold") return "no-hand";
   if (hold.rows.length + hold.cols.length > m.holdMax || (m.holdMax === 0 && hold.cells.length > 0)) return "bad-hold";

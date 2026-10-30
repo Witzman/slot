@@ -222,7 +222,7 @@ describe("a run", () => {
     const run = startRun(2, baseMods());
     run.turnsLeft = 0;
     beginRound(run, baseMods);
-    expect(run.turnsLeft).toBe(12);
+    expect(run.turnsLeft).toBe(baseMods().turns);
   });
 });
 
