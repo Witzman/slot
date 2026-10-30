@@ -39,8 +39,8 @@ export interface Mods {
 
 export function baseMods(): Mods {
   return {
-    startCoins: 100,
-    turns: 12,
+    startCoins: 150,
+    turns: 14,
     slotMaxBet: 3,
     slotWinMul: 1,
     handMul: Object.fromEntries(HAND_ORDER.map((r) => [r, 1])) as Record<HandRank, number>,
