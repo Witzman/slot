@@ -2,10 +2,11 @@ import "./style.css";
 import { type Meta, type ModeId, buyTech, combine, toggleEquip, checkAchievements, fileRelic, finishRun, modsFor } from "../game/meta";
 import { RELICS, CHARMS } from "../game/content";
 import type { SpinResult } from "../game/board";
+import { type Session, buySessionUpgrade, canPrestige, endlessMods, prestige, spinSession, startSession } from "../game/endless";
 import { type Run, type Refusal, buyCharm, buyUpgrade, chooseEvent, closeRound, drainEvents, pickCharm, rerollDraft, rerollShop, spinSlot, startRun } from "../game/run";
 import { type Sym, START_SYMS } from "../game/slot";
 import { localStore } from "../storage";
-import { loadMeta, loadRun, save } from "./save";
+import { loadMeta, loadMode, loadRun, loadSession, save } from "./save";
 import { isMuted, setMuted, sfx, unlock } from "./sfx";
 import { GLYPH, type Tab, type UI, type View, bookPanel, hud, nav, overlay, roundPanel, shopPanel, slotPanel, treePanel } from "./view";
 
@@ -26,17 +27,20 @@ const REFUSAL: Record<Refusal, string> = {
 /** A resting board of the given size, shown before the first spin and after the board grew. */
 const restGrid = (rows: number, cols: number): Sym[][] => Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => START_SYMS[(r * 2 + c * 3) % START_SYMS.length] as Sym));
 
-/** The only mode on screen until the start screen offers both (plan task 7). */
-const MODE: ModeId = "climb";
-const wait = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
+/** How much faster than normal the animation plays (automatic spins at a high rate): a spin must end before the next begins. */
+let animSpeed = 1;
+const wait = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms / animSpeed));
 
 async function boot(): Promise<void> {
   let meta: Meta = await loadMeta(store);
   let run: Run | null = await loadRun(store);
+  let session: Session | null = await loadSession(store);
+  let mode: ModeId = await loadMode(store);
   const ui: UI = { tab: "play", slotBet: 1, busy: false, grid: restGrid(3, 3), winCells: new Set(), slotNote: "", chain: 1, overChips: 0, muted: false, picked: [], craftNote: "", stake: 0 };
-  const mk = (charms: string[]) => modsFor(meta, MODE, charms, run?.upgrades ?? {}, run?.boss ?? null, run?.stake ?? 0);
-  const mods = () => mk(run?.charms ?? []);
-  const view = (): View => ({ mode: MODE, run, meta, mods: mods(), ui });
+  const mk = (charms: string[]) => modsFor(meta, "climb", charms, run?.upgrades ?? {}, run?.boss ?? null, run?.stake ?? 0);
+  const idle = startSession(0, modsFor(meta, "endless", [], {}), 0);
+  const mods = () => (mode === "endless" ? endlessMods(meta, session ?? idle) : mk(run?.charms ?? []));
+  const view = (): View => ({ mode, run, session, meta, mods: mods(), ui });
   let lastPhase = run?.phase ?? "over";
 
   const hudEl = $("hud");
@@ -57,7 +61,7 @@ async function boot(): Promise<void> {
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   function persist(now = false): void {
     clearTimeout(saveTimer);
-    const go = (): void => void save(store, meta, run).catch((e) => console.error("could not save", e));
+    const go = (): void => void save(store, meta, run, session, mode).catch((e) => console.error("could not save", e));
     if (now) go();
     else saveTimer = setTimeout(go, 400);
   }
@@ -80,14 +84,14 @@ async function boot(): Promise<void> {
 
   /** after anything changed the game: file prizes, show messages, unlock, close the run, save, draw */
   function changed(): void {
-    if (run) {
+    if (mode === "climb" && run) {
       for (; run.found > 0; run.found--) {
         const id = fileRelic(meta, run.rng);
         if (id) {
           toast(`Relic found: ${RELICS.find((r) => r.id === id)?.name ?? id}`);
           sfx.big();
         } else {
-          meta[MODE].chips++;
+          meta.climb.chips++;
           toast("A relic you already own: +1 chip");
         }
       }
@@ -102,7 +106,7 @@ async function boot(): Promise<void> {
       if ((run.phase === "draft" || run.phase === "event") && lastPhase !== run.phase) sfx.draft();
       lastPhase = run.phase;
     }
-    for (const a of checkAchievements(meta, MODE, run)) {
+    for (const a of checkAchievements(meta, mode, mode === "climb" ? run : null)) {
       toast(`Achievement: ${a.name} (+${a.chips} chips)`);
       sfx.win();
     }
@@ -114,7 +118,7 @@ async function boot(): Promise<void> {
   function newRun(): void {
     const seed = (Date.now() ^ Math.imul(meta.seedCounter++, 2654435761)) >>> 0;
     ui.stake = Math.min(ui.stake, meta.maxStake);
-    run = startRun(seed, modsFor(meta, MODE, [], {}, null, ui.stake), ui.stake);
+    run = startRun(seed, modsFor(meta, "climb", [], {}, null, ui.stake), ui.stake);
     lastPhase = "play";
     ui.slotNote = "";
     ui.winCells = new Set();
@@ -159,17 +163,25 @@ async function boot(): Promise<void> {
     }
   }
 
+  let nextAuto = 0;
+
   async function spinAction(): Promise<void> {
-    if (!run || ui.busy) return;
-    const res = spinSlot(run, mods(), ui.slotBet);
-    if (typeof res === "string") return void toast(REFUSAL[res]);
+    if (ui.busy) return;
+    const endless = mode === "endless";
+    if (endless ? !session : !run) return;
+    const m = mods();
+    const res = endless && session ? spinSession(session, m, ui.slotBet) : run ? spinSlot(run, m, ui.slotBet) : "not-playing";
+    if (typeof res === "string") return void toast(REFUSAL[res as Refusal] ?? "That is not possible now.");
+    const began = performance.now();
     ui.busy = true;
     ui.winCells = new Set();
     ui.slotNote = "";
     ui.chain = 1;
+    animSpeed = endless && m.autoRate > 0 && session?.autoOn ? Math.max(1, m.autoRate * 2.5) : 1;
     try {
       await playSpin(res, ui.slotBet);
     } finally {
+      animSpeed = 1;
       ui.busy = false;
       ui.winCells = new Set();
       ui.chain = 1;
@@ -178,6 +190,7 @@ async function boot(): Promise<void> {
     const chain = res.steps.length > 1 ? ` · chain of ${res.steps.length}` : "";
     ui.slotNote = res.payout > 0 ? `Won ${res.payout} coins${chain}${extra}` : `No win${extra}`;
     if (res.freeSpins > 0) sfx.gold();
+    nextAuto = began + (m.autoRate > 0 ? 1000 / m.autoRate : 0);
     changed();
   }
 
@@ -213,6 +226,49 @@ async function boot(): Promise<void> {
         break;
       case "newrun":
         newRun();
+        break;
+      case "mode":
+        if (!ui.busy && (value === "climb" || value === "endless") && value !== mode) {
+          mode = value;
+          ui.tab = "play";
+          ui.slotNote = "";
+          ui.winCells = new Set();
+          sfx.click();
+          persist(true);
+          render();
+        }
+        break;
+      case "newsession": {
+        const seed = (Date.now() ^ Math.imul(meta.seedCounter++, 2654435761)) >>> 0;
+        session = startSession(seed, modsFor(meta, "endless", [], {}), 0);
+        session.coins = endlessMods(meta, session).startCoins;
+        ui.slotNote = "";
+        persist(true);
+        render();
+        break;
+      }
+      case "sbuy":
+        if (session && buySessionUpgrade(session, value, mods())) {
+          sfx.gold();
+          changed();
+        }
+        break;
+      case "auto":
+        if (session && mods().autoRate > 0) {
+          session.autoOn = !session.autoOn;
+          nextAuto = performance.now();
+          sfx.click();
+          changed();
+        }
+        break;
+      case "prestige":
+        if (session && canPrestige(session)) {
+          const chips = prestige(session, meta);
+          toast(`Prestige! +${chips} chips, and every win pays more for good.`);
+          sfx.big();
+          ui.slotNote = "";
+          changed();
+        }
         break;
       case "slotbet":
         ui.slotBet += Number(value);
@@ -286,7 +342,7 @@ async function boot(): Promise<void> {
         }
         break;
       case "buy":
-        if (buyTech(meta, MODE, value)) {
+        if (buyTech(meta, mode, value)) {
           sfx.win();
           changed();
         }
@@ -301,6 +357,12 @@ async function boot(): Promise<void> {
 
   addEventListener("pagehide", () => persist(true));
   document.addEventListener("visibilitychange", () => document.hidden && persist(true));
+
+  // the machine spins by itself in endless mode once the tree allows it: never in a hidden tab, never a burst after a pause
+  setInterval(() => {
+    if (mode !== "endless" || !session?.autoOn || ui.busy || document.hidden || ui.tab !== "play" || mods().autoRate <= 0) return;
+    if (performance.now() >= nextAuto) void spinAction();
+  }, 200);
 
   changed(); // a loaded run that was over still pays its chips once
   render();

@@ -1,4 +1,4 @@
-import { BASE_RELIC_SLOTS, BOSSES, CHARMS, CURSES, MAX_STAKE, RELICS, RELIC_PERKS, STAKE_QUOTA, STAKE_TURNS, TECH, UPGRADES } from "./content";
+import { BASE_RELIC_SLOTS, BOSSES, CHARMS, CURSES, ENDLESS_UPGRADES, MAX_STAKE, RELICS, RELIC_PERKS, STAKE_QUOTA, STAKE_TURNS, TECH, UPGRADES } from "./content";
 import { type Mods, baseMods } from "./mods";
 import type { Run } from "./run";
 import { type Rng, weighted } from "./rng";
@@ -119,7 +119,7 @@ export function modsFor(meta: Meta, mode: ModeId, charms: readonly string[], upg
   m.startCoins += Math.floor(meta.relics.length / 2); // the collection pays: 1 coin per 2 relics
   for (const id of meta.loadout.slice(0, relicSlots(meta))) RELIC_PERKS[id]?.effect(m);
   for (const id of charms) (CHARMS.find((c) => c.id === id) ?? CURSES.find((c) => c.id === id))?.effect(m);
-  for (const u of UPGRADES) if ((upgrades[u.id] ?? 0) > 0) u.effect(m, upgrades[u.id] as number);
+  for (const u of [...UPGRADES, ...ENDLESS_UPGRADES]) if ((upgrades[u.id] ?? 0) > 0) u.effect(m, upgrades[u.id] as number);
   m.quotaMul *= 1 + STAKE_QUOTA * stake;
   if (stake >= STAKE_TURNS) m.turns -= 1;
   if (boss) BOSSES.find((b) => b.id === boss)?.effect(m);

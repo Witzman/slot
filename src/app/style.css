@@ -127,3 +127,8 @@ nav button { padding: 8px 4px; }
 .charm.rare { border-color: var(--pink); box-shadow: 0 0 14px rgba(255, 61, 129, 0.35); }
 .charm em { font-style: normal; font-size: 0.75rem; color: var(--gold); text-transform: uppercase; letter-spacing: 0.06em; }
 @media (min-width: 700px) { .card-box.wide .charms { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); } }
+
+.modes { display: flex; gap: 6px; }
+.modes button { padding: 6px 12px; border-radius: 999px; font-size: 0.85rem; }
+.modes button.active { background: var(--gold); color: #1a1030; border-color: var(--gold); font-weight: 800; }
+#roundbox button.active { border-color: var(--teal); }

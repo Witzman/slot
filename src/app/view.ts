@@ -2,6 +2,8 @@ import { ACHIEVEMENTS, type Meta, type ModeId, relicSlots } from "../game/meta";
 import { BOSSES, CHARMS, CURSES, RELICS, RELIC_PERKS, TECH, UPGRADES, upgradeCost } from "../game/content";
 import { eventById } from "../game/events";
 import type { Mods } from "../game/mods";
+import type { Session } from "../game/endless";
+import { endlessHud, endlessPanel, endlessShop } from "./endless-view";
 import { type Run, canClose, charmPrice, quotaFor, shopRerollPrice } from "../game/run";
 import { missionDef, missionProgress } from "../game/missions";
 import { CLUSTER_PAY } from "../game/board";
@@ -32,6 +34,8 @@ export interface View {
   /** the mode on screen: its chips and its tree */
   mode: ModeId;
   run: Run | null;
+  /** the endless session, when there is one */
+  session: Session | null;
   meta: Meta;
   mods: Mods;
   ui: UI;
@@ -57,13 +61,17 @@ const BRANCH_NAME = { board: "Board", symbols: "Symbols", combos: "Combos", econ
 const esc = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] as string);
 
 export function hud(v: View): string {
+  const modes = (["climb", "endless"] as const).map((m) => `<button class="${v.mode === m ? "active" : ""}" data-act="mode" data-v="${m}">${m === "climb" ? "Climb" : "Endless"}</button>`).join("");
+  const head = `<div class="brand">SLOT<b>·</b>ROGUE</div><div class="modes">${modes}</div>`;
+  const tail = `<div class="stat"><span>Chips</span><strong class="teal">${v.meta[v.mode].chips}</strong></div>
+    <button class="icon" data-act="mute" title="Toggle sound">${v.ui.muted ? "Unmute" : "Mute"}</button>`;
+  if (v.mode === "endless") return `${head}${endlessHud(v)}${tail}`;
   const r = v.run;
   const playing = r !== null && r.phase !== "over";
   const quota = r?.quota ?? 0;
   const pct = r && quota > 0 ? Math.min(100, Math.round((r.coins / quota) * 100)) : 0;
   const turns = r ? Array.from({ length: Math.max(v.mods.turns, r.turnsLeft) }, (_, i) => `<i class="${i < r.turnsLeft ? "on" : ""}"></i>`).join("") : "";
-  return `
-    <div class="brand">SLOT<b>·</b>ROGUE</div>
+  return `${head}
     ${
       playing && r
         ? `<div class="stat"><span>Coins</span><strong class="gold">${r.coins}</strong></div>
@@ -72,8 +80,7 @@ export function hud(v: View): string {
            <div class="stat"><span>Tickets</span><strong>${r.tickets}</strong></div>`
         : `<div class="stat wide"><span>No run in progress</span></div>`
     }
-    <div class="stat"><span>Chips</span><strong class="teal">${v.meta[v.mode].chips}</strong></div>
-    <button class="icon" data-act="mute" title="Toggle sound">${v.ui.muted ? "Unmute" : "Mute"}</button>`;
+    ${tail}`;
 }
 
 export function nav(v: View): string {
@@ -86,10 +93,14 @@ function betRow(act: string, bet: number, max: number, disabled: boolean): strin
 }
 
 export function slotPanel(v: View): string {
-  const { run, mods, ui } = v;
-  const live = run !== null && run.phase === "play" && !ui.busy;
-  const free = run !== null && run.freeSpins > 0;
+  const { run, mods, ui, session } = v;
+  const endless = v.mode === "endless";
+  const live = endless ? session !== null && !ui.busy : run !== null && run.phase === "play" && !ui.busy;
+  const freeLeft = endless ? session?.freeSpins ?? 0 : run?.freeSpins ?? 0;
+  const wallet = endless ? session?.coins ?? 0 : run?.coins ?? 0;
+  const free = freeLeft > 0;
   const cost = free ? 0 : ui.slotBet;
+  const broke = endless && !free && wallet < cost;
   const rows = ui.grid.length;
   const cols = (ui.grid[0] as Sym[]).length;
   const cells: string[] = [];
@@ -99,8 +110,8 @@ export function slotPanel(v: View): string {
       cells.push(`<div class="cell s-${sym}${ui.winCells.has(`${r},${c}`) ? " win" : ""}" data-col="${c}">${GLYPH[sym]}</div>`);
     }
   }
-  const canSpin = live && run !== null && (free || (run.turnsLeft > 0 && run.coins >= cost));
-  const why = !run || run.phase !== "play" ? "" : !free && run.turnsLeft <= 0 ? "No turns left: close the round." : !free && run.coins < cost ? "Not enough coins." : "";
+  const canSpin = endless ? live : live && run !== null && (free || (run.turnsLeft > 0 && run.coins >= cost));
+  const why = endless || !run || run.phase !== "play" ? "" : !free && run.turnsLeft <= 0 ? "No turns left: close the round." : !free && run.coins < cost ? "Not enough coins." : "";
   const chain = ui.chain > 1 ? ` · chain x${ui.chain}` : "";
   const pays = (["cherry", "lemon", "plum", "grape", "bell", "bar", "seven", "diamond"] as const).filter((s) => s !== "diamond" || mods.weights.diamond > 0).map((s) => `<li>${s === "bar" ? "BAR" : s === "seven" ? "7" : GLYPH[s]} ×${CLUSTER_PAY[s]}</li>`).join("");
   return `
@@ -109,7 +120,7 @@ export function slotPanel(v: View): string {
       <div class="reels" style="--cols:${cols};grid-template-columns:repeat(${cols},1fr)">${cells.join("")}</div>
       <p class="note">${esc(ui.slotNote) || "Match 3 or more symbols that touch sideways. Winners vanish, new ones fall: every step of the chain pays more. The star is wild. Three coins give a free spin."}${chain}</p>
       ${betRow("slotbet", ui.slotBet, mods.slotMaxBet, !live)}
-      <button class="big" data-act="spin" ${canSpin ? "" : "disabled"}>${free ? "FREE SPIN" : "SPIN"} <small>${why || (free ? `${run?.freeSpins ?? 0} free spin${(run?.freeSpins ?? 0) > 1 ? "s" : ""} left` : `${cost} coins · 1 turn`)}</small></button>
+      <button class="big" data-act="spin" ${canSpin ? "" : "disabled"}>${free || broke ? "FREE SPIN" : "SPIN"} <small>${why || (free ? `${freeLeft} free spin${freeLeft > 1 ? "s" : ""} left` : broke ? "wallet empty: a free base spin" : endless ? `${cost} coins` : `${cost} coins · 1 turn`)}</small></button>
       <details class="paytable"><summary>Pay table</summary>
         <p class="hint">Pay for 3 touching, times the bet. Each extra symbol in the group adds the same again. A bigger board pays a little less per cluster.</p>
         <ul>${pays}</ul>
@@ -118,6 +129,7 @@ export function slotPanel(v: View): string {
 }
 
 export function roundPanel(v: View): string {
+  if (v.mode === "endless") return endlessPanel(v);
   const { run, mods } = v;
   const close = run !== null && canClose(run, mods);
   const boss = run?.boss ? BOSSES.find((b) => b.id === run.boss) : undefined;
@@ -126,6 +138,7 @@ export function roundPanel(v: View): string {
 }
 
 export function shopPanel(v: View): string {
+  if (v.mode === "endless") return endlessShop(v);
   const { run } = v;
   const live = run !== null && run.phase === "play" && !v.ui.busy;
   const rows = UPGRADES.map((u) => {
@@ -145,9 +158,9 @@ export function shopPanel(v: View): string {
 export function treePanel(v: View): string {
   const { meta, run } = v;
   const tree = meta[v.mode];
-  const locked = run !== null && run.phase !== "over";
+  const locked = v.mode === "climb" && run !== null && run.phase !== "over";
   const cols = (Object.keys(BRANCH_NAME) as (keyof typeof BRANCH_NAME)[]).map((b) => {
-    const nodes = TECH.filter((t) => t.branch === b).map((t) => {
+    const nodes = TECH.filter((t) => t.branch === b && (t.modes === undefined || t.modes.includes(v.mode))).map((t) => {
       const owned = tree.tech.includes(t.id);
       const open = t.requires.every((r) => tree.tech.includes(r));
       const afford = tree.chips >= t.cost;
@@ -159,9 +172,9 @@ export function treePanel(v: View): string {
     });
     return `<div class="branch"><h3>${BRANCH_NAME[b]}</h3>${nodes.join("")}</div>`;
   });
-  const start = locked ? "" : `<button class="big" data-act="newrun">Start run</button>`;
+  const start = locked || v.mode === "endless" ? "" : `<button class="big" data-act="newrun">Start run</button>`;
   return `<section class="tree"><h2>Tech tree</h2>${start}
-    <p class="note">${locked ? "Finish or lose your run to spend chips." : "Spend chips on permanent upgrades. Earn chips with rounds, missions and achievements."}</p>
+    <p class="note">${locked ? "Finish or lose your run to spend chips." : v.mode === "endless" ? "Spend chips on permanent upgrades of the endless mode. Earn chips by prestige." : "Spend chips on permanent upgrades. Earn chips with rounds, missions and achievements."}</p>
     <div class="branches">${cols.join("")}</div></section>`;
 }
 
@@ -206,6 +219,13 @@ function stakePicker(v: View): string {
 export function overlay(v: View): string {
   const { run, ui, meta } = v;
   if (ui.busy) return "";
+  if (v.mode === "endless") {
+    if (v.session || ui.tab === "tree" || ui.tab === "book") return "";
+    return `<div class="modal"><div class="card-box title">
+      <h1>ENDLESS</h1>
+      <p>No quota, no turns. Spin at your own pace, buy upgrades and a bigger board with your coins, reach milestones and prestige for a permanent bonus.</p>
+      <button class="big" data-act="newsession">Start</button></div></div>`;
+  }
   if ((!run || run.phase === "over") && (ui.tab === "tree" || ui.tab === "book")) return "";
   if (!run) {
     return `<div class="modal"><div class="card-box title">

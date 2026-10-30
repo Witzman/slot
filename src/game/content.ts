@@ -1,5 +1,7 @@
 import type { Effect, Mods } from "./mods";
-import type { Sym } from "./slot";
+import { PAY_SYMS, type PaySym, type Sym } from "./slot";
+
+const PAY_KEYS: readonly PaySym[] = PAY_SYMS;
 
 export interface TechNode {
   id: string;
@@ -8,6 +10,8 @@ export interface TechNode {
   text: string;
   cost: number;
   requires: string[];
+  /** the modes a node is for; none given: both */
+  modes?: ("climb" | "endless")[];
   effect: Effect;
 }
 
@@ -40,13 +44,13 @@ export const TECH: readonly TechNode[] = [
   // economy: what a run starts with, and how it is paced
   { id: "purse1", branch: "economy", name: "Pocket Change", text: "Start each run with +10 coins.", cost: 3, requires: [], effect: (m) => void (m.startCoins += 10) },
   { id: "purse2", branch: "economy", name: "Lucky Wallet", text: "Start each run with +20 more coins.", cost: 8, requires: ["purse1"], effect: (m) => void (m.startCoins += 20) },
-  { id: "time1", branch: "economy", name: "Overtime", text: "+1 turn every round.", cost: 6, requires: ["purse1"], effect: (m) => void (m.turns += 1) },
-  { id: "time2", branch: "economy", name: "Night Shift", text: "+2 more turns every round.", cost: 14, requires: ["time1"], effect: (m) => void (m.turns += 2) },
-  { id: "haggle", branch: "economy", name: "Haggler", text: "Quotas are 10% lower.", cost: 12, requires: ["purse2"], effect: (m) => void (m.quotaMul *= 0.9) },
-  { id: "reroll", branch: "economy", name: "Second Look", text: "Re-draw the charm choice once per round.", cost: 9, requires: ["time1"], effect: (m) => void (m.rerolls += 1) },
-  { id: "interest1", branch: "economy", name: "Savings Account", text: "Keep 5% of your coins as interest each round.", cost: 10, requires: ["purse2"], effect: (m) => void (m.interest += 0.05) },
-  { id: "auto1", branch: "economy", name: "Auto-Spin", text: "Endless mode: the machine spins by itself, one spin every 2.5 seconds.", cost: 10, requires: ["purse1"], effect: (m) => void (m.autoRate = Math.max(m.autoRate, 0.4)) },
-  { id: "auto2", branch: "economy", name: "Turbo Spin", text: "Endless mode: one automatic spin per second.", cost: 20, requires: ["auto1"], effect: (m) => void (m.autoRate = Math.max(m.autoRate, 1)) },
+  { id: "time1", branch: "economy", name: "Overtime", text: "+1 turn every round.", cost: 6, requires: ["purse1"], modes: ["climb"], effect: (m) => void (m.turns += 1) },
+  { id: "time2", branch: "economy", name: "Night Shift", text: "+2 more turns every round.", cost: 14, requires: ["time1"], modes: ["climb"], effect: (m) => void (m.turns += 2) },
+  { id: "haggle", branch: "economy", name: "Haggler", text: "Quotas are 10% lower.", cost: 12, requires: ["purse2"], modes: ["climb"], effect: (m) => void (m.quotaMul *= 0.9) },
+  { id: "reroll", branch: "economy", name: "Second Look", text: "Re-draw the charm choice once per round.", cost: 9, requires: ["time1"], modes: ["climb"], effect: (m) => void (m.rerolls += 1) },
+  { id: "interest1", branch: "economy", name: "Savings Account", text: "Keep 5% of your coins as interest each round.", cost: 10, requires: ["purse2"], modes: ["climb"], effect: (m) => void (m.interest += 0.05) },
+  { id: "auto1", branch: "economy", name: "Auto-Spin", text: "Endless mode: the machine spins by itself, one spin every 2.5 seconds.", cost: 10, requires: ["purse1"], modes: ["endless"], effect: (m) => void (m.autoRate = Math.max(m.autoRate, 0.4)) },
+  { id: "auto2", branch: "economy", name: "Turbo Spin", text: "Endless mode: one automatic spin per second.", cost: 20, requires: ["auto1"], modes: ["endless"], effect: (m) => void (m.autoRate = Math.max(m.autoRate, 1)) },
   { id: "case1", branch: "economy", name: "Display Case", text: "Equip a third relic.", cost: 6, requires: ["purse1"], effect: () => {} },
   { id: "case2", branch: "economy", name: "Trophy Room", text: "Equip a fourth relic.", cost: 14, requires: ["case1"], effect: () => {} },
 ];
@@ -134,8 +138,9 @@ export interface Upgrade {
   id: string;
   name: string;
   text: string;
-  /** coins for level 1; each further level costs 1.5 times the one before */
+  /** coins for level 1; each further level costs `growth` (1.5 when not given) times the one before */
   base: number;
+  growth?: number;
   max: number;
   effect: (m: Mods, level: number) => void;
 }
@@ -150,7 +155,20 @@ export const UPGRADES: readonly Upgrade[] = [
   { id: "savings", name: "Savings Account", text: "+5% interest per level.", base: 10, max: 3, effect: (m, l) => void (m.interest += 0.05 * l) },
 ];
 
-export const upgradeCost = (u: Upgrade, level: number): number => Math.ceil(u.base * Math.pow(1.5, level));
+export const upgradeCost = (u: Upgrade, level: number): number => Math.ceil(u.base * Math.pow(u.growth ?? 1.5, level));
+
+/** What the endless shop sells, bought with coins until the next prestige. Many small levels: there is always something to save for. Starting values; the balance pass retunes them. */
+export const ENDLESS_UPGRADES: readonly Upgrade[] = [
+  { id: "ereels", name: "Reel Tuning", text: "Every win pays +8% per level.", base: 6, growth: 1.22, max: 200, effect: (m, l) => void (m.slotWinMul *= 1 + 0.08 * l) },
+  { id: "epay", name: "Gilded Symbols", text: "Every cluster pays +10% per level.", base: 25, growth: 1.3, max: 100, effect: (m, l) => void PAY_KEYS.forEach((k) => (m.symPay[k] *= Math.pow(1.1, l))) },
+  { id: "echain", name: "Chain Booster", text: "+0.08 chain multiplier per cascade step, per level.", base: 20, growth: 1.35, max: 60, effect: (m, l) => void (m.chainStep += 0.08 * l) },
+  { id: "ecap", name: "Higher Ceiling", text: "The chain multiplier can reach 1 more per level.", base: 50, growth: 1.8, max: 12, effect: (m, l) => void (m.chainCap += l) },
+  { id: "ewilds", name: "Wild Reels", text: "+1 wild star on the board per level.", base: 40, growth: 2, max: 5, effect: (m, l) => void (m.weights.wild += l) },
+  { id: "elure", name: "Scatter Lure", text: "+1 coin scatter on the board per level.", base: 30, growth: 2.2, max: 4, effect: (m, l) => void (m.weights.coin += l) },
+  { id: "rowup", name: "Add a Row", text: "The board gets one more row per level (up to 6).", base: 60, growth: 3.2, max: 3, effect: (m, l) => void (m.rows = Math.max(m.rows, 3 + l)) },
+  { id: "colup", name: "Add a Column", text: "The board gets one more column per level (up to 6).", base: 90, growth: 3.2, max: 3, effect: (m, l) => void (m.cols = Math.max(m.cols, 3 + l)) },
+  { id: "betup", name: "High Roller", text: "The max bet is 1 higher per level.", base: 25, growth: 2, max: 4, effect: (m, l) => void (m.slotMaxBet += l) },
+];
 
 export interface Boss {
   id: string;
