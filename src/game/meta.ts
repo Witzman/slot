@@ -126,8 +126,8 @@ export interface Achievement {
 }
 
 export const ACHIEVEMENTS: readonly Achievement[] = [
-  { id: "first", name: "First Pull", text: "Spin the reels once.", chips: 1, test: (m, r) => m.life.spins + (r?.stats.spins ?? 0) >= 1 },
-  { id: "seven", name: "Lucky Seven", text: "Hit three sevens on a line.", chips: 3, test: (_, r) => (r?.stats.jackpots ?? 0) >= 1 },
+  { id: "first", name: "First Deal", text: "Play a round.", chips: 1, test: (m, r) => m.life.spins + (r?.stats.spins ?? 0) >= 1 },
+  { id: "flush", name: "Flush!", text: "Make a flush or better.", chips: 3, test: (_, r) => (r?.stats.bestHand ?? 0) >= 5 },
   { id: "r3", name: "Getting Warm", text: "Reach round 3.", chips: 2, test: (_, r) => (r?.round ?? 0) >= 3 },
   { id: "r5", name: "On a Roll", text: "Reach round 5.", chips: 4, test: (_, r) => (r?.round ?? 0) >= 5 },
   { id: "r8", name: "High Stakes", text: "Reach round 8.", chips: 8, test: (_, r) => (r?.round ?? 0) >= 8 },

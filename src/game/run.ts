@@ -1,18 +1,22 @@
 import { BOSSES, BOSS_EVERY, CHARMS, CURSES, RARITY_PRICE, RARITY_WEIGHT, UPGRADES, upgradeCost } from "./content";
 import type { Mods } from "./mods";
 import { type Rng, int, makeRng, weighted } from "./rng";
-import { type SpinResult, spinBoard } from "./board";
+import { HAND_ORDER } from "./hands";
+import { type CardUpgrade, type Deal, LINES, type RoundResult, deal, drawRound } from "./round";
 import { eventById, rollEvent } from "./events";
 import { type MissionState, drawMissions, updateMissions } from "./missions";
 
 export interface RunStats {
+  /** rounds played (a deal and its draw) */
   spins: number;
+  /** hands scored over all rounds */
   slotWins: number;
+  /** the most coins one round paid */
   bestSlotWin: number;
-  jackpots: number;
-  scatters: number;
-  /** most cascade steps in one spin */
-  bestChain: number;
+  /** the most hands scored in one round */
+  bestLines: number;
+  /** the best hand made: 0 none, else the index in HAND_ORDER plus 1 */
+  bestHand: number;
   relics: number;
   maxCoins: number;
   bosses: number;
@@ -41,8 +45,10 @@ export interface Run {
   draft: string[];
   /** run tickets: earned by rounds, missions and scatters, spent on charms in the shop */
   tickets: number;
-  /** free spins from coin scatters: a free spin costs no coins and no turn */
-  freeSpins: number;
+  /** the round on the table: dealt, waiting for the draw, or drawn and showing its result until the next deal */
+  hand: Deal | null;
+  /** upgrades on single cards (by card id 0..51), for this run */
+  cardUpgrades: Record<number, CardUpgrade>;
   /** charms for sale after this round */
   shop: string[];
   /** shop re-rolls bought this round */
@@ -90,11 +96,12 @@ export function startRun(seed: number, m: Mods, stake = 0): Run {
     phase: "play",
     draft: [],
     tickets: m.startTickets,
-    freeSpins: 0,
+    hand: null,
+    cardUpgrades: {},
     shop: [],
     shopRerolls: 0,
     rerollsLeft: m.rerolls,
-    stats: { spins: 0, slotWins: 0, bestSlotWin: 0, jackpots: 0, scatters: 0, bestChain: 0, relics: 0, maxCoins: m.startCoins, bosses: 0, events: 0 },
+    stats: { spins: 0, slotWins: 0, bestSlotWin: 0, bestLines: 0, bestHand: 0, relics: 0, maxCoins: m.startCoins, bosses: 0, events: 0 },
     missions: [],
     chipsPending: 0,
     events: [],
@@ -106,7 +113,7 @@ export function startRun(seed: number, m: Mods, stake = 0): Run {
   return run;
 }
 
-export type Refusal = "not-playing" | "no-turns" | "no-coins" | "bad-bet";
+export type Refusal = "not-playing" | "no-turns" | "no-coins" | "bad-bet" | "busy" | "bad-hold" | "no-hand";
 
 function canAct(run: Run): Refusal | null {
   if (run.phase !== "play") return "not-playing";
@@ -119,11 +126,13 @@ function gain(run: Run, n: number): void {
   if (run.coins > run.stats.maxCoins) run.stats.maxCoins = run.coins;
 }
 
+/** The least a round can cost per line; a round costs bet times the 10 lines. */
 export const MIN_BET = 1;
 
 /** The round can be closed once the turns are gone or nothing more can be paid for. */
 export function canClose(run: Run, m: Mods): boolean {
-  return run.phase === "play" && (run.turnsLeft <= 0 || run.coins < MIN_BET);
+  const open = run.hand !== null && run.hand.phase === "hold";
+  return run.phase === "play" && !open && (run.turnsLeft <= 0 || run.coins < MIN_BET * LINES);
 }
 
 /** Close the round: pay the quota from the wallet (coins still on the shelf do not count) and offer charms, or end the run. */
@@ -270,29 +279,32 @@ export function rerollDraft(run: Run): boolean {
   return true;
 }
 
-/** One pull: pay the bet, fill the board and play the cascade; the win goes into the wallet. A free spin (from scatters) costs no coins and no turn. */
-export function spinSlot(run: Run, m: Mods, bet: number): Refusal | SpinResult {
-  const free = run.phase === "play" && run.freeSpins > 0;
-  const no = free ? null : canAct(run);
+/** Deal a round: it costs the bet on each of the 10 lines and one turn, and the cards are on the table to hold from. */
+export function dealRound(run: Run, m: Mods, bet: number): Refusal | Deal {
+  const no = canAct(run);
   if (no) return no;
-  if (run.phase !== "play") return "not-playing";
+  if (run.hand !== null && run.hand.phase === "hold") return "busy";
   if (!Number.isInteger(bet) || bet < 1 || bet > m.slotMaxBet) return "bad-bet";
-  if (!free && bet > run.coins) return "no-coins";
-  if (free) run.freeSpins--;
-  else {
-    run.coins -= bet;
-    run.turnsLeft--;
-  }
-  const res = spinBoard(run.rng, { rows: m.rows, cols: m.cols }, bet, { weights: m.weights, symPay: m.symPay, chainStep: m.chainStep, chainCap: m.chainCap, globalMul: m.slotWinMul });
+  if (bet * LINES > run.coins) return "no-coins";
+  run.coins -= bet * LINES;
+  run.turnsLeft--;
+  run.hand = deal(run.rng, bet, m.removedRanks, m.redraws);
+  return run.hand;
+}
+
+/** Hold rows, columns (and single cards with the tree's node) and draw. Only the last draw of a round pays; the win goes into the wallet. */
+export function drawHand(run: Run, m: Mods, hold: { rows: number[]; cols: number[]; cells: number[] }): RoundResult | "bad-hold" | "no-hand" {
+  const d = run.hand;
+  if (run.phase !== "play" || d === null || d.phase !== "hold") return "no-hand";
+  if (hold.rows.length + hold.cols.length > m.holdMax || (m.holdMax === 0 && hold.cells.length > 0)) return "bad-hold";
+  const res = drawRound(run.rng, d, hold, { removedRanks: m.removedRanks, singleHold: m.singleHold, upgrades: run.cardUpgrades, score: { handMul: m.handMul, globalMul: m.slotWinMul, lineBonus: m.lineBonus } });
+  if (typeof res === "string" || !res.final) return res;
   gain(run, res.payout);
-  run.freeSpins += res.freeSpins;
   const s = run.stats;
   s.spins++;
-  if (res.freeSpins > 0) s.scatters++;
-  const clusters = res.steps.flatMap((st) => st.clusters);
-  s.slotWins += clusters.length;
-  s.jackpots += clusters.filter((c) => c.sym === "seven").length;
-  s.bestChain = Math.max(s.bestChain, res.steps.length);
+  s.slotWins += res.lines.length;
+  s.bestLines = Math.max(s.bestLines, res.lines.length);
+  for (const l of res.lines) s.bestHand = Math.max(s.bestHand, HAND_ORDER.indexOf(l.rank) + 1);
   if (res.payout > s.bestSlotWin) s.bestSlotWin = res.payout;
   updateMissions(run);
   return res;
@@ -302,6 +314,31 @@ export function drainEvents(run: Run): string[] {
   const e = run.events;
   run.events = [];
   return e;
+}
+
+function restoreHand(raw: unknown): Deal | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const h = raw as Partial<Deal>;
+  const ok = Array.isArray(h.board) && h.board.length === 25 && h.board.every((c) => Number.isInteger(c) && c >= 0 && c < 52) && new Set(h.board).size === 25;
+  if (!ok || (h.phase !== "hold" && h.phase !== "done") || !Number.isInteger(h.bet) || (h.bet as number) < 1 || !Number.isInteger(h.draws) || !Number.isInteger(h.maxDraws) || (h.maxDraws as number) < 1) return null;
+  return { board: [...(h.board as number[])], bet: h.bet as number, phase: h.phase, draws: h.draws as number, maxDraws: h.maxDraws as number };
+}
+
+function restoreCardUpgrades(raw: unknown): Record<number, CardUpgrade> {
+  const out: Record<number, CardUpgrade> = {};
+  if (typeof raw !== "object" || raw === null) return out;
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const card = Number(k);
+    if (!Number.isInteger(card) || card < 0 || card > 51 || typeof v !== "object" || v === null) continue;
+    const u = v as CardUpgrade;
+    const clean: CardUpgrade = {};
+    if (typeof u.rank === "number" && u.rank >= 1) clean.rank = Math.min(12, Math.floor(u.rank));
+    if (u.joker === true) clean.joker = true;
+    if (u.gold === true) clean.gold = true;
+    if (u.anySuit === true) clean.anySuit = true;
+    if (Object.keys(clean).length > 0) out[card] = clean;
+  }
+  return out;
 }
 
 /** A saved run read back from untrusted storage: null when it does not look like a run (a run from before the pusher and poker were removed is one of those). */
@@ -330,7 +367,11 @@ export function restoreRun(raw: unknown): Run | null {
   const bossId = BOSSES.some((b) => b.id === o.boss) ? (o.boss as string) : null;
   const eventId = eventById(o.event ?? null) ? (o.event as string) : null;
   const st = o.stats as Partial<RunStats>;
-  const stats = { ...(o.stats as RunStats), events: Math.max(0, Math.floor(num0(st.events))), bosses: Math.max(0, Math.floor(num0(st.bosses))), scatters: Math.max(0, Math.floor(num0(st.scatters))), bestChain: Math.max(0, Math.floor(num0(st.bestChain))) };
+  const stats = { ...(o.stats as RunStats), events: Math.max(0, Math.floor(num0(st.events))), bosses: Math.max(0, Math.floor(num0(st.bosses))), bestLines: Math.max(0, Math.floor(num0(st.bestLines))), bestHand: Math.max(0, Math.floor(num0(st.bestHand))) };
   if (o.phase === "event" && !eventId) return null;
-  return { ...(o as Run), stake: Math.min(5, Math.max(0, Math.floor(num0(o.stake)))), boss: bossId, event: o.phase === "event" ? eventId : null, stats, tickets: Math.max(0, Math.floor(num0(o.tickets))), freeSpins: Math.max(0, Math.floor(num0(o.freeSpins))), shop, shopRerolls: Math.max(0, Math.floor(num0(o.shopRerolls))), upgrades, events: [], found: 0, finished: o.finished === true, overReason: o.overReason ?? "" };
+  if (!("hand" in o) || !("cardUpgrades" in o)) return null; // a run from before the cards
+  const hand = restoreHand(o.hand);
+  if (o.hand !== null && hand === null) return null;
+  const cardUpgrades = restoreCardUpgrades(o.cardUpgrades);
+  return { ...(o as Run), stake: Math.min(5, Math.max(0, Math.floor(num0(o.stake)))), boss: bossId, event: o.phase === "event" ? eventId : null, stats, tickets: Math.max(0, Math.floor(num0(o.tickets))), hand, cardUpgrades, shop, shopRerolls: Math.max(0, Math.floor(num0(o.shopRerolls))), upgrades, events: [], found: 0, finished: o.finished === true, overReason: o.overReason ?? "" };
 }

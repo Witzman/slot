@@ -9,10 +9,17 @@ const baseMods = () => {
   m.eventChance = 0;
   return m;
 };
-import { type Run, beginRound, canClose, closeRound, drainEvents, pickCharm, quotaFor, rerollDraft, restoreRun, spinSlot, startRun } from "../../src/game/run";
+import { type Run, beginRound, canClose, closeRound, dealRound, drainEvents, drawHand, pickCharm, quotaFor, rerollDraft, restoreRun, startRun } from "../../src/game/run";
 import { makeRng } from "../../src/game/rng";
 
 const mk = (charms: string[]) => modsFor(newMeta(), charms);
+
+const NOTHING = { rows: [], cols: [], cells: [] };
+/** One round the plain way: deal and draw, holding nothing. Returns the draw's result, or the refusal. */
+function play(run: Run, m: ReturnType<typeof baseMods>, bet = 1, hold: { rows: number[]; cols: number[]; cells: number[] } = NOTHING) {
+  const d = dealRound(run, m, bet);
+  return typeof d === "string" ? d : drawHand(run, m, hold);
+}
 
 /** Plays a round or more the plain way: pull, close the round, take the first charm. */
 function drive(run: Run, m = baseMods()): void {
@@ -21,7 +28,7 @@ function drive(run: Run, m = baseMods()): void {
       pickCharm(run, run.draft[0] as string, mk);
       continue;
     }
-    if (run.turnsLeft > 0 && run.coins >= 1) spinSlot(run, m, 1);
+    if (run.turnsLeft > 0 && run.coins >= 10) play(run, m, 1);
     else closeRound(run, m, mk);
     if (run.round >= 3) break;
   }
@@ -30,32 +37,88 @@ function drive(run: Run, m = baseMods()): void {
 describe("a run", () => {
   it("starts with the coins, turns and quota of its round", () => {
     const run = startRun(1, baseMods());
-    expect([run.coins, run.turnsLeft, run.quota, run.round, run.phase]).toEqual([50, 12, 14, 1, "play"]);
+    expect([run.coins, run.turnsLeft, run.quota, run.round, run.phase]).toEqual([baseMods().startCoins, baseMods().turns, 14, 1, "play"]);
     expect(run.missions).toHaveLength(3);
   });
 
-  it("a pull charges the bet, spends a turn and pays its win into the wallet at once", () => {
+  it("a deal charges the bet on 10 lines and spends a turn, the draw pays into the wallet", () => {
     const run = startRun(3, baseMods());
-    const res = spinSlot(run, baseMods(), 2);
+    const start = run.coins;
+    const d = dealRound(run, baseMods(), 2);
+    expect(typeof d).toBe("object");
+    expect(run.coins).toBe(start - 20);
+    expect(run.turnsLeft).toBe(baseMods().turns - 1);
+    const res = drawHand(run, baseMods(), NOTHING);
     expect(typeof res).toBe("object");
     if (typeof res === "string") return;
-    expect(run.coins).toBe(50 - 2 + res.payout);
-    expect(run.turnsLeft).toBe(11);
+    expect(res.final).toBe(true);
+    expect(run.coins).toBe(start - 20 + res.payout);
+    expect(run.stats.spins).toBe(1);
+  });
+
+  it("refuses a second deal while a hand is open, and a draw without a deal", () => {
+    const run = startRun(3, baseMods());
+    expect(drawHand(run, baseMods(), NOTHING)).toBe("no-hand");
+    dealRound(run, baseMods(), 1);
+    const coins = run.coins;
+    expect(dealRound(run, baseMods(), 1)).toBe("busy");
+    expect(run.coins).toBe(coins);
+    drawHand(run, baseMods(), NOTHING);
+    expect(typeof dealRound(run, baseMods(), 1)).toBe("object");
+  });
+
+  it("a round cannot be closed with a hand open", () => {
+    const run = startRun(3, baseMods());
+    run.turnsLeft = 1;
+    dealRound(run, baseMods(), 1);
+    expect(canClose(run, baseMods())).toBe(false);
+    drawHand(run, baseMods(), NOTHING);
+    expect(canClose(run, baseMods())).toBe(true);
+  });
+
+  it("holding is refused for single cards without the node, and by the no-holds boss", () => {
+    const run = startRun(3, baseMods());
+    dealRound(run, baseMods(), 1);
+    expect(drawHand(run, baseMods(), { rows: [], cols: [], cells: [3] })).toBe("bad-hold");
+    const m = baseMods();
+    m.singleHold = true;
+    expect(typeof drawHand(run, m, { rows: [], cols: [], cells: [3] })).toBe("object");
+    const run2 = startRun(4, baseMods());
+    const none = modsFor(newMeta(), [], {}, "nohold");
+    dealRound(run2, none, 1);
+    expect(drawHand(run2, none, { rows: [1], cols: [], cells: [] })).toBe("bad-hold");
+    expect(typeof drawHand(run2, none, NOTHING)).toBe("object");
+  });
+
+  it("a free second draw lets the player hold again, and only the last draw pays", () => {
+    const run = startRun(5, baseMods());
+    const m = baseMods();
+    m.redraws = 1;
+    const start = run.coins;
+    dealRound(run, m, 1);
+    const first = drawHand(run, m, { rows: [0], cols: [], cells: [] });
+    if (typeof first === "string") throw new Error(first);
+    expect([first.final, run.coins]).toEqual([false, start - 10]);
+    expect(run.hand?.phase).toBe("hold");
+    const second = drawHand(run, m, { rows: [0], cols: [], cells: [] });
+    if (typeof second === "string") throw new Error(second);
+    expect(second.final).toBe(true);
+    expect(run.coins).toBe(start - 10 + second.payout);
     expect(run.stats.spins).toBe(1);
   });
 
   it("refuses a bet above the max, without coins or without turns, and charges nothing", () => {
     const run = startRun(3, baseMods());
     const m = baseMods();
-    expect(spinSlot(run, m, 4)).toBe("bad-bet");
-    expect(spinSlot(run, m, 0)).toBe("bad-bet");
-    run.coins = 0;
-    expect(spinSlot(run, m, 1)).toBe("no-coins");
-    expect([run.coins, run.turnsLeft]).toEqual([0, 12]);
-    run.coins = 10;
+    expect(dealRound(run, m, 4)).toBe("bad-bet");
+    expect(dealRound(run, m, 0)).toBe("bad-bet");
+    run.coins = 9;
+    expect(dealRound(run, m, 1)).toBe("no-coins");
+    expect([run.coins, run.turnsLeft]).toEqual([9, baseMods().turns]);
+    run.coins = 100;
     run.turnsLeft = 0;
-    expect(spinSlot(run, m, 1)).toBe("no-turns");
-    expect(run.coins).toBe(10);
+    expect(dealRound(run, m, 1)).toBe("no-turns");
+    expect(run.coins).toBe(100);
   });
 
   it("is a pure function of its seed", () => {
@@ -71,7 +134,7 @@ describe("a run", () => {
     const m = baseMods();
     expect(canClose(run, m)).toBe(false);
     run.turnsLeft = 1;
-    spinSlot(run, m, 1);
+    play(run, m, 1);
     expect(canClose(run, m)).toBe(true);
     expect(closeRound(startRun(5, m), m, mk)).toBe(false);
   });
@@ -148,9 +211,7 @@ describe("a run", () => {
     const run = startRun(2, baseMods());
     run.missions = [{ id: "spin6", done: false }];
     run.coins = 500;
-    for (let i = 0; i < 6; i++) {
-      spinSlot(run, baseMods(), 1);
-    }
+    for (let i = 0; i < 6; i++) play(run, baseMods(), 1);
     expect(run.missions[0]?.done).toBe(true);
     expect(run.chipsPending).toBe(1);
     expect(drainEvents(run).some((e) => e.startsWith("Mission done"))).toBe(true);
@@ -175,7 +236,7 @@ describe("the meta game", () => {
     expect(buyTech(meta, "purse1")).toBe(false);
     expect(buyTech(meta, "purse2")).toBe(true);
     expect(meta.chips).toBe(100 - 3 - 8);
-    expect(modsFor(meta, []).startCoins).toBe(80);
+    expect(modsFor(meta, []).startCoins).toBe(baseMods().startCoins + 20 + 40);
   });
 
   it("tree: every node can be reached and has an effect", () => {
@@ -310,10 +371,10 @@ describe("run upgrades", () => {
     const { restoreRun, buyUpgrade } = await import("../../src/game/run");
     const run = startRun(1, baseMods());
     run.coins = 100;
-    buyUpgrade(run, "wilds");
+    buyUpgrade(run, "pay");
     const saved = JSON.parse(JSON.stringify(run));
-    expect(restoreRun(saved)?.upgrades).toEqual({ wilds: 1 });
-    saved.upgrades = { wilds: 99, reels: "x", nope: 1 };
+    expect(restoreRun(saved)?.upgrades).toEqual({ pay: 1 });
+    saved.upgrades = { pay: 99, reels: "x", nope: 1 };
     expect(restoreRun(saved)?.upgrades).toEqual({});
   });
 });
@@ -361,7 +422,7 @@ describe("crafting relics", () => {
   it("pays a start coin for every two relics", () => {
     const meta = newMeta();
     meta.relics = ["penny", "dice", "tooth"];
-    expect(modsFor(meta, []).startCoins).toBe(51);
+    expect(modsFor(meta, []).startCoins).toBe(baseMods().startCoins + 1);
   });
 });
 
@@ -402,24 +463,9 @@ describe("charm shop and tickets", () => {
     const run = startRun(2, baseMods());
     run.missions = [{ id: "spin6", done: false }];
     run.coins = 500;
-    for (let i = 0; i < 6; i++) spinSlot(run, baseMods(), 1);
+    for (let i = 0; i < 6; i++) play(run, baseMods(), 1);
     expect(run.tickets).toBeGreaterThanOrEqual(1);
     expect(run.missions[0]?.done).toBe(true);
-  });
-
-  it("a coin scatter gives free spins that cost no coins and no turn", () => {
-    const w = baseMods();
-    w.weights = { ...w.weights, cherry: 0, lemon: 0, plum: 0, grape: 0, bell: 0, bar: 0, seven: 0, wild: 0, coin: 1 };
-    const run = startRun(2, w);
-    run.missions = [];
-    const res = spinSlot(run, w, 1);
-    expect(typeof res).toBe("object");
-    expect(run.freeSpins).toBe(7);
-    expect(run.stats.scatters).toBe(1);
-    const [coins, turns] = [run.coins, run.turnsLeft];
-    const next = spinSlot(run, baseMods(), 1);
-    expect(typeof next).toBe("object");
-    expect([run.coins, run.turnsLeft, run.freeSpins]).toEqual([coins + (next as { payout: number }).payout, turns, 6]);
   });
 
   it("buys a charm with tickets at its rarity price, once, and it joins the run", async () => {
@@ -500,30 +546,43 @@ describe("charm shop and tickets", () => {
   });
 });
 
-describe("symbol charms", () => {
-  it("multiply the pay of one symbol and leave the others", async () => {
-    const { spinBoard } = await import("../../src/game/board");
-    const { SYMS } = await import("../../src/game/slot");
-    const only = (sym: string) => Object.fromEntries(SYMS.map((s) => [s, s === sym ? 1 : 0])) as Record<(typeof SYMS)[number], number>;
-    const pay = (sym: string, symPay: Partial<Record<string, number>>): number => {
-      const sp = { ...baseMods().symPay, ...symPay } as Record<(typeof SYMS)[number], number>;
-      return spinBoard(makeRng(1), { rows: 3, cols: 3 }, 1, { weights: only(sym), symPay: sp, chainStep: 0, chainCap: 1, globalMul: 1 }).steps[0]?.pay ?? 0;
-    };
-    const base = pay("cherry", {});
-    expect(base).toBeGreaterThan(0);
-    expect(pay("cherry", { cherry: 3 })).toBeCloseTo(3 * base);
-    expect(pay("cherry", { lemon: 9 })).toBeCloseTo(base);
+describe("hand charms", () => {
+  it("raise the pay of their hands and leave the others", () => {
+    const base = baseMods();
+    const sharp = modsFor(newMeta(), ["sharp"]);
+    expect([sharp.handMul.jacks, sharp.handMul.twoPair, sharp.handMul.flush]).toEqual([1.5, 1.5, base.handMul.flush]);
+    expect(modsFor(newMeta(), ["royalty"]).handMul.royal).toBe(2);
+    expect(modsFor(newMeta(), ["encore"]).lineBonus).toBeCloseTo(0.3);
+    expect(modsFor(newMeta(), ["colddeck"]).removedRanks).toEqual([2]);
+    expect(modsFor(newMeta(), ["colddeck", "slimdeck"]).removedRanks).toEqual([2, 3]);
+    expect(modsFor(newMeta(), ["steady"]).singleHold).toBe(true);
+    expect(modsFor(newMeta(), ["seconddraw"]).redraws).toBe(1);
   });
 
-  it("keep the slot return in a sane range with every symbol charm at once", async () => {
-    const { spinBoard } = await import("../../src/game/board");
-    const m = modsFor(newMeta(), ["cherrypick", "lemonade", "bellringer", "barfly", "sevenheaven"]);
+  it("keep the return of a greedy player in a sane range with every hand charm at once", async () => {
+    const { scoreBoard, deal, drawRound } = await import("../../src/game/round");
+    const m = modsFor(newMeta(), ["sharp", "threes", "runner", "flushfever", "fulltable"]);
     const rng = makeRng(321);
     let paid = 0;
-    const n = 20000;
-    for (let i = 0; i < n; i++) paid += spinBoard(rng, { rows: m.rows, cols: m.cols }, 1, { weights: m.weights, symPay: m.symPay, chainStep: m.chainStep, chainCap: m.chainCap, globalMul: m.slotWinMul }).payout;
-    expect(paid / n).toBeGreaterThan(0.9);
-    expect(paid / n).toBeLessThan(3);
+    const n = 3000;
+    for (let i = 0; i < n; i++) {
+      const d = deal(rng, 1);
+      const res = drawRound(rng, d, { rows: [], cols: [], cells: [] }, { singleHold: false, upgrades: {}, score: { handMul: m.handMul, globalMul: m.slotWinMul, lineBonus: m.lineBonus } });
+      if (typeof res === "string") throw new Error(res);
+      paid += res.payout;
+    }
+    const base = modsFor(newMeta(), []);
+    let paidBase = 0;
+    const rng2 = makeRng(321);
+    for (let i = 0; i < n; i++) {
+      const d = deal(rng2, 1);
+      const res = drawRound(rng2, d, { rows: [], cols: [], cells: [] }, { singleHold: false, upgrades: {}, score: { handMul: base.handMul, globalMul: base.slotWinMul, lineBonus: base.lineBonus } });
+      if (typeof res === "string") throw new Error(res);
+      paidBase += res.payout;
+    }
+    expect(paid).toBeGreaterThan(paidBase);
+    expect(paid / paidBase).toBeLessThan(2);
+    expect(scoreBoard([...Array(25).keys()], 1, {}, { handMul: m.handMul, globalMul: 1, lineBonus: 0 }).payout).toBeGreaterThanOrEqual(0);
   });
 });
 
@@ -554,8 +613,9 @@ describe("bosses", () => {
   it("changes the mods by the rule of the boss, and only for that round", async () => {
     const { BOSSES } = await import("../../src/game/content");
     const plain = modsFor(meta, []);
-    const frozen = modsFor(meta, [], {}, "frozen");
-    expect([frozen.weights.wild, frozen.weights.coin]).toEqual([0, 0]);
+    expect(modsFor(meta, [], {}, "nohold").holdMax).toBe(0);
+    const low = modsFor(meta, [], {}, "lowpay");
+    expect([low.handMul.jacks, low.handMul.twoPair, low.handMul.flush]).toEqual([0, 0, plain.handMul.flush]);
     expect(modsFor(meta, [], {}, "landlord").turns).toBe(plain.turns - 3);
     expect(modsFor(meta, [], {}, "edge").slotWinMul).toBeCloseTo(0.7);
     expect(modsFor(meta, [], {}, "collector").quotaMul).toBeCloseTo(1.35);

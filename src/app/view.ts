@@ -4,21 +4,22 @@ import { eventById } from "../game/events";
 import type { Mods } from "../game/mods";
 import { type Run, canClose, charmPrice, quotaFor, shopRerollPrice } from "../game/run";
 import { missionDef, missionProgress } from "../game/missions";
-import { CLUSTER_PAY } from "../game/board";
-import type { Sym } from "../game/slot";
+import { rankOf, suitOf } from "../game/cards";
+import { BASE_PAY, HAND_LABEL, HAND_ORDER } from "../game/hands";
+import { LINES, type RoundResult, SIZE, heldCells } from "../game/round";
 
 export type Tab = "play" | "shop" | "tree" | "book";
 
 export interface UI {
   tab: Tab;
   slotBet: number;
-  /** reels are turning: the screen holds back round and run results until they stop */
-  busy: boolean;
-  grid: Sym[][];
-  winCells: Set<string>;
+  /** held rows, columns and single cells for the next draw */
+  holdRows: Set<number>;
+  holdCols: Set<number>;
+  holdCells: Set<number>;
+  /** the last draw, for the cells it replaced and the hands it scored */
+  result: RoundResult | null;
   slotNote: string;
-  /** the chain multiplier shown while a cascade plays */
-  chain: number;
   overChips: number;
   muted: boolean;
   /** relics picked for combining (at most two) */
@@ -35,21 +36,7 @@ export interface View {
   ui: UI;
 }
 
-const svg = (body: string): string => `<svg viewBox="0 0 48 48" width="1em" height="1em" aria-hidden="true">${body}</svg>`;
-/** Symbols are drawn, not typed as emoji: not every system has an emoji font. */
-export const GLYPH: Record<Sym, string> = {
-  cherry: svg('<path d="M18 30 C20 18 26 12 34 8 M30 32 C30 20 32 14 34 8" stroke="#2f7d32" stroke-width="3" fill="none"/><circle cx="16" cy="34" r="8" fill="#d3213f"/><circle cx="31" cy="35" r="8" fill="#e63950"/><circle cx="13" cy="31" r="2" fill="#fff" opacity=".6"/>'),
-  plum: svg('<circle cx="24" cy="27" r="15" fill="#7b2d8e" stroke="#4d1a5c" stroke-width="2"/><path d="M24 12 C24 8 27 5 31 5" stroke="#2f7d32" stroke-width="3" fill="none"/><ellipse cx="18" cy="22" rx="4" ry="2.5" fill="#fff" opacity=".35"/>'),
-  grape: svg('<circle cx="16" cy="20" r="7" fill="#6a3fc7"/><circle cx="32" cy="20" r="7" fill="#7a4fd8"/><circle cx="24" cy="30" r="7" fill="#6a3fc7"/><circle cx="24" cy="14" r="6" fill="#7a4fd8"/><circle cx="14" cy="18" r="2" fill="#fff" opacity=".4"/><path d="M24 8 C24 5 26 3 30 3" stroke="#2f7d32" stroke-width="3" fill="none"/>'),
-  lemon: svg('<ellipse cx="24" cy="26" rx="18" ry="13" fill="#ffd84a" stroke="#c9a100" stroke-width="2"/><path d="M5 26 L1 24 M43 26 L47 24" stroke="#c9a100" stroke-width="3"/><ellipse cx="18" cy="21" rx="5" ry="2.5" fill="#fff" opacity=".5"/>'),
-  bell: svg('<path d="M24 6 C14 6 12 16 12 24 C12 31 8 34 8 36 L40 36 C40 34 36 31 36 24 C36 16 34 6 24 6Z" fill="#f2b705" stroke="#a87400" stroke-width="2"/><circle cx="24" cy="40" r="4" fill="#a87400"/>'),
-  bar: "BAR",
-  seven: "7",
-  wild: svg('<polygon points="24,4 30,18 45,19 33,29 37,44 24,36 11,44 15,29 3,19 18,18" fill="#ffcc33" stroke="#b07a00" stroke-width="2"/>'),
-  coin: svg('<circle cx="24" cy="24" r="19" fill="#ffd84a" stroke="#a87400" stroke-width="3"/><circle cx="24" cy="24" r="12" fill="none" stroke="#b98500" stroke-width="2"/><text x="24" y="30" font-size="16" font-weight="900" text-anchor="middle" fill="#a87400">$</text>'),
-};
-
-const BRANCH_NAME = { run: "Run", slot: "Slot" } as const;
+const BRANCH_NAME = { hold: "Hold", cards: "Cards", hands: "Hands", economy: "Economy" } as const;
 
 const esc = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] as string);
 
@@ -79,37 +66,67 @@ export function nav(v: View): string {
 }
 
 function betRow(act: string, bet: number, max: number, disabled: boolean): string {
-  return `<div class="bet"><button data-act="${act}" data-v="-1" ${disabled ? "disabled" : ""}>−</button><span>Bet <strong>${bet}</strong></span><button data-act="${act}" data-v="1" ${disabled ? "disabled" : ""}>+</button><small>max ${max}</small></div>`;
+  return `<div class="bet"><button data-act="${act}" data-v="-1" ${disabled ? "disabled" : ""}>−</button><span>Bet <strong>${bet}</strong></span><button data-act="${act}" data-v="1" ${disabled ? "disabled" : ""}>+</button><small>max ${max} · a round costs ${bet * LINES}</small></div>`;
+}
+
+const RANK_LABEL: Record<number, string> = { 11: "J", 12: "Q", 13: "K", 14: "A" };
+const SUIT_GLYPH = ["♠", "♥", "♦", "♣"];
+
+/** One card, with its marks: held, new from the draw, and the upgrades it carries. */
+function cardHtml(v: View, cell: number, held: boolean, fresh: boolean, clickable: boolean): string {
+  const board = v.run?.hand?.board;
+  if (!board) return `<div class="pc back"></div>`;
+  const card = board[cell] as number;
+  const u = v.run?.cardUpgrades[card];
+  const rank = Math.min(14, rankOf(card) + (u?.rank ?? 0));
+  const suit = suitOf(card);
+  const marks = [u?.joker ? "★" : "", u?.gold ? "$" : "", u?.rank ? `+${u.rank}` : "", u?.anySuit ? "◆" : ""].join("");
+  const face = u?.joker ? "★" : `${RANK_LABEL[rank] ?? rank}`;
+  return `<button class="pc ${suit === 1 || suit === 2 ? "red" : ""}${held ? " held" : ""}${fresh ? " new" : ""}${u?.joker ? " joker" : ""}${u?.gold ? " gold" : ""}" data-act="holdcell" data-v="${cell}" ${clickable ? "" : "disabled"}><span>${face}</span><span>${u?.joker ? "" : SUIT_GLYPH[suit]}</span>${marks ? `<em>${marks}</em>` : ""}</button>`;
 }
 
 export function slotPanel(v: View): string {
   const { run, mods, ui } = v;
-  const live = run !== null && run.phase === "play" && !ui.busy;
-  const free = run !== null && run.freeSpins > 0;
-  const cost = free ? 0 : ui.slotBet;
-  const rows = ui.grid.length;
-  const cols = (ui.grid[0] as Sym[]).length;
-  const cells: string[] = [];
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const sym = (ui.grid[r] as Sym[])[c] as Sym;
-      cells.push(`<div class="cell s-${sym}${ui.winCells.has(`${r},${c}`) ? " win" : ""}" data-col="${c}">${GLYPH[sym]}</div>`);
+  const hand = run?.hand ?? null;
+  const open = hand !== null && hand.phase === "hold";
+  const playing = run !== null && run.phase === "play";
+  const kept = heldCells([...ui.holdRows], [...ui.holdCols], [...ui.holdCells]);
+  const result = hand !== null && hand.phase === "done" ? ui.result : null;
+  const lineOf = (line: number) => result?.lines.find((l) => l.line === line);
+  const badge = (line: number): string => {
+    const l = lineOf(line);
+    return l ? `<span class="badge" title="${HAND_LABEL[l.rank]}">${HAND_LABEL[l.rank]} <b>+${Math.round(l.pay)}</b></span>` : `<span class="badge none"></span>`;
+  };
+  const rowBtn = (r: number): string => `<button class="line${ui.holdRows.has(r) ? " on" : ""}" data-act="holdrow" data-v="${r}" ${open ? "" : "disabled"} aria-label="Hold row ${r + 1}">${ui.holdRows.has(r) ? "HOLD" : "R" + (r + 1)}</button>`;
+  const colBtn = (c: number): string => `<button class="line${ui.holdCols.has(c) ? " on" : ""}" data-act="holdcol" data-v="${c}" ${open ? "" : "disabled"} aria-label="Hold column ${c + 1}">${ui.holdCols.has(c) ? "HOLD" : "C" + (c + 1)}</button>`;
+  const cells: string[] = ['<span></span>', ...Array.from({ length: SIZE }, (_, c) => colBtn(c)), '<span></span>'];
+  for (let r = 0; r < SIZE; r++) {
+    cells.push(rowBtn(r));
+    for (let c = 0; c < SIZE; c++) {
+      const i = r * SIZE + c;
+      cells.push(cardHtml(v, i, open && kept.has(i), result?.drawn[i] === true || (open && (ui.result?.drawn[i] ?? false)), open && mods.singleHold));
     }
+    cells.push(badge(r));
   }
-  const canSpin = live && run !== null && (free || (run.turnsLeft > 0 && run.coins >= cost));
-  const why = !run || run.phase !== "play" ? "" : !free && run.turnsLeft <= 0 ? "No turns left: close the round." : !free && run.coins < cost ? "Not enough coins." : "";
-  const chain = ui.chain > 1 ? ` · chain x${ui.chain}` : "";
-  const pays = (["cherry", "lemon", "plum", "grape", "bell", "bar", "seven"] as const).map((s) => `<li>${s === "bar" ? "BAR" : s === "seven" ? "7" : GLYPH[s]} ×${CLUSTER_PAY[s]}</li>`).join("");
+  cells.push("<span></span>", ...Array.from({ length: SIZE }, (_, c) => badge(SIZE + c)), "<span></span>");
+  const cost = ui.slotBet * LINES;
+  const why = !playing ? "" : !open && run.turnsLeft <= 0 ? "No turns left: close the round." : !open && run.coins < cost ? "Not enough coins." : "";
+  const canDeal = playing && !open && run.turnsLeft > 0 && run.coins >= cost;
+  const drawsLeft = hand ? hand.maxDraws - hand.draws : 0;
+  const pays = HAND_ORDER.map((r) => `<li><span>${HAND_LABEL[r]}</span><b>${Math.round(BASE_PAY[r] * mods.handMul[r] * ui.slotBet)}</b></li>`).reverse().join("");
+  const help = open
+    ? `Hold rows or columns${mods.singleHold ? " or single cards" : ""} you want to keep, then draw.${drawsLeft > 1 ? ` ${drawsLeft} draws: only the last one pays.` : " Only this draw pays."}`
+    : "Deal 25 cards. Every row and every column is a poker hand; all hands add up.";
   return `
     <section class="machine slot">
-      <h2>Reels <small>${rows}×${cols}</small></h2>
-      <div class="reels" style="--cols:${cols};grid-template-columns:repeat(${cols},1fr)">${cells.join("")}</div>
-      <p class="note">${esc(ui.slotNote) || "Match 3 or more symbols that touch sideways. Winners vanish, new ones fall: every step of the chain pays more. The star is wild. Three coins give a free spin."}${chain}</p>
-      ${betRow("slotbet", ui.slotBet, mods.slotMaxBet, !live)}
-      <button class="big" data-act="spin" ${canSpin ? "" : "disabled"}>${free ? "FREE SPIN" : "SPIN"} <small>${why || (free ? `${run?.freeSpins ?? 0} free spin${(run?.freeSpins ?? 0) > 1 ? "s" : ""} left` : `${cost} coins · 1 turn`)}</small></button>
-      <details class="paytable"><summary>Pay table</summary>
-        <p class="hint">Pay for 3 touching, times the bet. Each extra symbol in the group adds the same again. A bigger board pays a little less per cluster.</p>
-        <ul>${pays}</ul>
+      <h2>Cards <small>10 hands</small></h2>
+      <div class="cards">${cells.join("")}</div>
+      <p class="note">${esc(ui.slotNote) || help}</p>
+      ${betRow("slotbet", ui.slotBet, mods.slotMaxBet, !playing || open)}
+      ${open ? `<button class="big" data-act="draw">DRAW <small>${kept.size === 0 ? "hold nothing: draw all 25" : `keeping ${kept.size} cards`}${drawsLeft > 1 ? ` · draw ${hand?.draws !== undefined ? hand.draws + 1 : 1} of ${hand?.maxDraws ?? 1}` : ""}</small></button>` : `<button class="big" data-act="deal" ${canDeal ? "" : "disabled"}>DEAL <small>${why || `${cost} coins · 1 turn`}</small></button>`}
+      <details class="paytable"><summary>Pay table (bet ${ui.slotBet})</summary>
+        <ul class="list">${pays}</ul>
+        <p class="hint">Pairs below jacks pay nothing. A card in a row and a column scores in both.</p>
       </details>
     </section>`;
 }
@@ -124,7 +141,7 @@ export function roundPanel(v: View): string {
 
 export function shopPanel(v: View): string {
   const { run } = v;
-  const live = run !== null && run.phase === "play" && !v.ui.busy;
+  const live = run !== null && run.phase === "play";
   const rows = UPGRADES.map((u) => {
     const level = run?.upgrades[u.id] ?? 0;
     const maxed = level >= u.max;
@@ -201,13 +218,12 @@ function stakePicker(v: View): string {
 
 export function overlay(v: View): string {
   const { run, ui, meta } = v;
-  if (ui.busy) return "";
   if ((!run || run.phase === "over") && (ui.tab === "tree" || ui.tab === "book")) return "";
   if (!run) {
     return `<div class="modal"><div class="card-box title">
       <h1>SLOT<b>·</b>ROGUE</h1>
-      <p>Spin the reels, pay the quota when your turns run out, pick a charm, go deeper. Lose the run, earn chips, grow the tech tree.</p>
-      <p class="hint">Each spin is one turn.</p>
+      <p>Deal a 5×5 board of cards: every row and column is a poker hand and the hands add up. Hold what you like, draw, pay the quota when your turns run out, pick a charm, go deeper. Lose the run, earn chips, grow the tech tree.</p>
+      <p class="hint">Each round (deal, hold, draw) is one turn.</p>
       ${stakePicker(v)}<button class="big" data-act="newrun">Start run</button></div></div>`;
   }
   if (run.phase === "event") {

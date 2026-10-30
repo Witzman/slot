@@ -1,13 +1,12 @@
 import "./style.css";
 import { type Meta, buyTech, combine, toggleEquip, checkAchievements, fileRelic, finishRun, modsFor } from "../game/meta";
 import { RELICS, CHARMS } from "../game/content";
-import type { SpinResult } from "../game/board";
-import { type Run, type Refusal, buyCharm, buyUpgrade, chooseEvent, closeRound, drainEvents, pickCharm, rerollDraft, rerollShop, spinSlot, startRun } from "../game/run";
-import { type Sym, PAY_SYMS } from "../game/slot";
+import { type Run, type Refusal, buyCharm, buyUpgrade, chooseEvent, closeRound, dealRound, drainEvents, drawHand, pickCharm, rerollDraft, rerollShop, startRun } from "../game/run";
+import { HAND_LABEL } from "../game/hands";
 import { localStore } from "../storage";
 import { loadMeta, loadRun, save } from "./save";
 import { isMuted, setMuted, sfx, unlock } from "./sfx";
-import { GLYPH, type Tab, type UI, type View, bookPanel, hud, nav, overlay, roundPanel, shopPanel, slotPanel, treePanel } from "./view";
+import { type Tab, type UI, type View, bookPanel, hud, nav, overlay, roundPanel, shopPanel, slotPanel, treePanel } from "./view";
 
 const store = localStore();
 const $ = (id: string): HTMLElement => {
@@ -19,33 +18,19 @@ const $ = (id: string): HTMLElement => {
 const REFUSAL: Record<Refusal, string> = {
   "not-playing": "No run in progress.",
   "no-turns": "No turns left this round.",
-  "no-coins": "Not enough coins.",
+  "no-coins": "Not enough coins for a round.",
   "bad-bet": "That bet is not allowed.",
+  busy: "Draw the cards on the table first.",
+  "bad-hold": "You cannot hold that.",
+  "no-hand": "Deal first.",
 };
-
-/** A resting board of the given size, shown before the first spin and after the board grew. */
-const restGrid = (rows: number, cols: number): Sym[][] => Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => PAY_SYMS[(r * 2 + c * 3) % PAY_SYMS.length] as Sym));
-
-/** `?board=6x6` plays on a board of that size (a try-out switch; the tech tree buys the real thing). */
-function boardOverride(): { rows: number; cols: number } | null {
-  const m = /^(\d)x(\d)$/.exec(new URLSearchParams(location.search).get("board") ?? "");
-  const rows = Number(m?.[1]);
-  const cols = Number(m?.[2]);
-  return m && rows >= 3 && rows <= 6 && cols >= 3 && cols <= 6 ? { rows, cols } : null;
-}
-const wait = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
 
 async function boot(): Promise<void> {
   let meta: Meta = await loadMeta(store);
   let run: Run | null = await loadRun(store);
-  const ui: UI = { tab: "play", slotBet: 1, busy: false, grid: restGrid(3, 3), winCells: new Set(), slotNote: "", chain: 1, overChips: 0, muted: false, picked: [], craftNote: "", stake: 0 };
+  const ui: UI = { tab: "play", slotBet: 1, holdRows: new Set(), holdCols: new Set(), holdCells: new Set(), result: null, slotNote: "", overChips: 0, muted: false, picked: [], craftNote: "", stake: 0 };
   const mk = (charms: string[]) => modsFor(meta, charms, run?.upgrades ?? {}, run?.boss ?? null, run?.stake ?? 0);
-  const override = boardOverride();
-  const mods = () => {
-    const m = mk(run?.charms ?? []);
-    if (override) Object.assign(m, override);
-    return m;
-  };
+  const mods = () => mk(run?.charms ?? []);
   const view = (): View => ({ run, meta, mods: mods(), ui });
   let lastPhase = run?.phase ?? "over";
 
@@ -75,7 +60,6 @@ async function boot(): Promise<void> {
   function render(): void {
     const v = view();
     ui.slotBet = Math.min(Math.max(1, ui.slotBet), v.mods.slotMaxBet);
-    if (!ui.busy && (ui.grid.length !== v.mods.rows || (ui.grid[0] as Sym[]).length !== v.mods.cols)) ui.grid = restGrid(v.mods.rows, v.mods.cols);
     hudEl.innerHTML = hud(v);
     navEl.innerHTML = nav(v);
     const onPlay = ui.tab === "play";
@@ -117,8 +101,7 @@ async function boot(): Promise<void> {
       sfx.win();
     }
     persist();
-    if (!ui.busy) render();
-    else hudEl.innerHTML = hud(view());
+    render();
   }
 
   function newRun(): void {
@@ -127,67 +110,46 @@ async function boot(): Promise<void> {
     run = startRun(seed, modsFor(meta, [], {}, null, ui.stake), ui.stake);
     lastPhase = "play";
     ui.slotNote = "";
-    ui.winCells = new Set();
-    ui.grid = restGrid(3, 3);
+    clearHold();
+    ui.result = null;
     ui.tab = "play";
     persist(true);
     render();
   }
 
-  /** Reels turn, stop column by column on the start board, then every cascade step flashes its clusters and refills. */
-  async function playSpin(res: SpinResult, bet: number): Promise<void> {
-    const rows = res.start.length;
-    const cols = (res.start[0] as Sym[]).length;
-    const paint = (): void => {
-      slotEl.innerHTML = slotPanel(view());
-      hudEl.innerHTML = hud(view());
-    };
-    ui.grid = restGrid(rows, cols);
-    const stops = Array.from({ length: cols }, (_, c) => 450 + c * (500 / Math.max(1, cols - 1)));
-    const t0 = performance.now();
-    for (;;) {
-      const el = performance.now() - t0;
-      for (let c = 0; c < cols; c++) {
-        for (let r = 0; r < rows; r++) (ui.grid[r] as Sym[])[c] = el < (stops[c] ?? 0) ? (PAY_SYMS[Math.floor(Math.random() * PAY_SYMS.length)] as Sym) : ((res.start[r] as Sym[])[c] as Sym);
-        if (el >= (stops[c] ?? 0) && el < (stops[c] ?? 0) + 80) sfx.reel(c);
-      }
-      paint();
-      if (el >= (stops[cols - 1] ?? 0)) break;
-      await wait(70);
-    }
-    ui.grid = res.start.map((row) => [...row]);
-    for (const step of res.steps) {
-      ui.chain = step.multiplier;
-      ui.winCells = new Set(step.clusters.flatMap((cl) => cl.cells.map(([r, c]) => `${r},${c}`)));
-      paint();
-      (step.pay >= bet * 6 ? sfx.big : sfx.win)();
-      await wait(550);
-      ui.winCells = new Set();
-      ui.grid = step.grid.map((row) => [...row]);
-      paint();
-      await wait(320);
-    }
+  const clearHold = (): void => {
+    ui.holdRows.clear();
+    ui.holdCols.clear();
+    ui.holdCells.clear();
+  };
+
+  function dealAction(): void {
+    if (!run) return;
+    const res = dealRound(run, mods(), ui.slotBet);
+    if (typeof res === "string") return void toast(REFUSAL[res]);
+    clearHold();
+    ui.result = null;
+    ui.slotNote = "";
+    sfx.click();
+    changed();
   }
 
-  async function spinAction(): Promise<void> {
-    if (!run || ui.busy) return;
-    const res = spinSlot(run, mods(), ui.slotBet);
-    if (typeof res === "string") return void toast(REFUSAL[res]);
-    ui.busy = true;
-    ui.winCells = new Set();
-    ui.slotNote = "";
-    ui.chain = 1;
-    try {
-      await playSpin(res, ui.slotBet);
-    } finally {
-      ui.busy = false;
-      ui.winCells = new Set();
-      ui.chain = 1;
+  function drawAction(): void {
+    if (!run) return;
+    const res = drawHand(run, mods(), { rows: [...ui.holdRows], cols: [...ui.holdCols], cells: [...ui.holdCells] });
+    if (typeof res === "string") return void toast(res === "bad-hold" ? REFUSAL["bad-hold"] : REFUSAL["no-hand"]);
+    ui.result = res;
+    clearHold();
+    if (!res.final) {
+      ui.slotNote = "Free draw used: hold again, only the last draw pays.";
+      sfx.card();
+    } else {
+      const best = res.lines.reduce<typeof res.lines[number] | undefined>((b, l) => (b === undefined || l.pay > b.pay ? l : b), undefined);
+      ui.slotNote = res.payout > 0 ? `${res.lines.length} hand${res.lines.length > 1 ? "s" : ""} · best: ${best ? HAND_LABEL[best.rank] : ""} · won ${res.payout} coins` : "No hand pays. Next round.";
+      if (res.payout >= (run.hand?.bet ?? 1) * 60) sfx.big();
+      else if (res.payout > 0) sfx.win();
+      else sfx.lose();
     }
-    const extra = res.freeSpins > 0 ? ` · ${res.freeSpins} free spin${res.freeSpins > 1 ? "s" : ""}!` : "";
-    const chain = res.steps.length > 1 ? ` · chain of ${res.steps.length}` : "";
-    ui.slotNote = res.payout > 0 ? `Won ${res.payout} coins${chain}${extra}` : `No win${extra}`;
-    if (res.freeSpins > 0) sfx.gold();
     changed();
   }
 
@@ -229,9 +191,28 @@ async function boot(): Promise<void> {
         sfx.click();
         render();
         break;
-      case "spin":
-        void spinAction();
+      case "deal":
+        dealAction();
         break;
+      case "draw":
+        drawAction();
+        break;
+      case "holdrow":
+      case "holdcol": {
+        const set = name === "holdrow" ? ui.holdRows : ui.holdCols;
+        const n = Number(value);
+        if (!set.delete(n)) set.add(n);
+        sfx.click();
+        render();
+        break;
+      }
+      case "holdcell": {
+        const n = Number(value);
+        if (!ui.holdCells.delete(n)) ui.holdCells.add(n);
+        sfx.click();
+        render();
+        break;
+      }
       case "close":
         if (run && closeRound(run, mods(), mk)) {
           sfx.click();

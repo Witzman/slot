@@ -50,7 +50,6 @@ main { padding-top: 16px; }
   #app { max-width: 1280px; }
   .cabinet { grid-template-columns: minmax(0, 560px); justify-content: center; align-items: start; }
 }
-@media (max-width: 999px) { .reels { max-width: 360px; margin: 0 auto; } }
 .machine { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 18px; max-width: 560px; margin: 0 auto; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4), inset 0 0 0 2px rgba(255, 204, 51, 0.06); }
 .note { min-height: 2.6em; margin: 10px 0; color: var(--text); }
 .big { display: block; width: 100%; background: linear-gradient(180deg, var(--pink), #c4154f); border: 0; font-weight: 800; font-size: 1.2rem; letter-spacing: 0.08em; padding: 14px; margin-top: 10px; box-shadow: 0 4px 0 #7d0b31; }
@@ -59,12 +58,6 @@ main { padding-top: 16px; }
 .bet { display: flex; align-items: center; gap: 12px; justify-content: center; }
 .bet span { min-width: 80px; text-align: center; }
 
-.reels { display: grid; grid-template-columns: repeat(var(--cols, 3), 1fr); gap: 8px; background: #0b0614; padding: 10px; border-radius: 14px; border: 2px solid var(--gold); }
-.cell svg { display: block; }
-.cell { aspect-ratio: 1; display: grid; place-items: center; font-size: calc(clamp(2rem, 10vw, 3.4rem) * 3 / max(var(--cols, 3), 3)); background: linear-gradient(180deg, #f7f2ff, #cfc2ee); color: #2a1450; border-radius: 10px; font-weight: 900; }
-.cell.s-bar { font-size: calc(clamp(1.2rem, 6vw, 1.9rem) * 3 / max(var(--cols, 3), 3)); letter-spacing: 0.1em; }
-.cell.s-seven { color: var(--red); font-size: calc(clamp(2.4rem, 12vw, 4rem) * 3 / max(var(--cols, 3), 3)); }
-.cell.win { background: linear-gradient(180deg, #fff3b8, var(--gold)); animation: pulse 0.6s ease-in-out infinite alternate; }
 @keyframes pulse { to { transform: scale(1.06); } }
 .paytable { margin-top: 10px; color: var(--dim); font-size: 0.9rem; }
 .paytable svg { width: 1.2em; height: 1.2em; vertical-align: -0.2em; }
@@ -127,3 +120,23 @@ nav button { padding: 8px 4px; }
 .charm.rare { border-color: var(--pink); box-shadow: 0 0 14px rgba(255, 61, 129, 0.35); }
 .charm em { font-style: normal; font-size: 0.75rem; color: var(--gold); text-transform: uppercase; letter-spacing: 0.06em; }
 @media (min-width: 700px) { .card-box.wide .charms { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); } }
+
+/* the card board: a toggle per row and column, five by five cards, the score of each line */
+.cards { display: grid; grid-template-columns: minmax(34px, 0.7fr) repeat(5, minmax(0, 1fr)) minmax(40px, 0.9fr); gap: 6px; align-items: stretch; background: #0b5a2e; padding: 10px; border-radius: 14px; border: 2px solid var(--gold); }
+.cards .line { padding: 4px 2px; font-size: 0.7rem; border-radius: 8px; min-height: 26px; }
+.cards .line.on { background: var(--teal); color: #052e26; border-color: var(--teal); font-weight: 800; }
+.cards .line:disabled { opacity: 0.55; }
+.pc { aspect-ratio: 5 / 7; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; font-size: clamp(0.9rem, 3.6vw, 1.5rem); font-weight: 800; line-height: 1.05; background: #fbf8ff; color: #1c1230; border: 2px solid #cfc2ee; border-radius: 8px; padding: 2px; position: relative; min-width: 0; }
+.pc.red { color: #d3213f; }
+.pc.back { background: repeating-linear-gradient(45deg, #2a1450, #2a1450 4px, #3d1f75 4px, #3d1f75 8px); border-color: #6a4bb3; }
+.pc.held { border-color: var(--teal); box-shadow: 0 0 0 2px var(--teal); transform: translateY(-4px); }
+.pc.new { animation: deal-in 0.4s ease-out; }
+.pc.joker { background: linear-gradient(180deg, #fff3b8, #ffd84a); }
+.pc.gold { box-shadow: inset 0 0 0 2px var(--gold); }
+.pc em { position: absolute; bottom: 1px; right: 3px; font-size: 0.55rem; font-style: normal; color: #7a4a00; }
+.pc:disabled { opacity: 1; cursor: default; }
+.badge { display: flex; flex-direction: column; justify-content: center; font-size: 0.6rem; line-height: 1.1; color: #fff; text-align: center; min-width: 0; overflow: hidden; }
+.badge b { color: var(--gold); font-size: 0.75rem; }
+.badge.none { visibility: hidden; }
+@keyframes deal-in { from { transform: translateY(-14px) rotateY(90deg); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (max-width: 520px) { .badge { font-size: 0.5rem; } .badge b { font-size: 0.62rem; } .cards { gap: 4px; padding: 6px; } }
