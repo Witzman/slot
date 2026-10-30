@@ -50,7 +50,7 @@ const num = (x: unknown, d = 0): number => (typeof x === "number" && Number.isFi
 const ids = (x: unknown, known: readonly string[]): string[] => (Array.isArray(x) ? [...new Set(x.filter((v): v is string => typeof v === "string" && known.includes(v)))] : []);
 
 /** Chips the tech nodes cost that no longer exist (pusher and poker, lines; #10): a saved meta that owns one gets the chips back. */
-export const REMOVED_TECH_COST: Readonly<Record<string, number>> = { lines3: 4, lines5: 10, pbet: 4, pfull: 7, ptwo: 9, pdraw: 18, gold1: 4, prize1: 6, free1: 8, zone4: 12, zone5: 20, pmul: 15 };
+export const REMOVED_TECH_COST: Readonly<Record<string, number>> = { rows4: 4, cols4: 10, wild2: 9, scatter2: 8, lines3: 4, lines5: 10, pbet: 4, pfull: 7, ptwo: 9, pdraw: 18, gold1: 4, prize1: 6, free1: 8, zone4: 12, zone5: 20, pmul: 15 };
 
 /** Chips back for every saved node the tree no longer holds: removed ones, and ones whose prerequisite is gone. */
 const refund = (raw: unknown, kept: readonly string[]): number =>
@@ -63,7 +63,12 @@ const record = (x: unknown): Record<string, unknown> => (typeof x === "object" &
 /** One mode out of untrusted storage: unknown ids dropped, nodes without their prerequisites dropped and refunded. */
 function restoreMode(raw: unknown): ModeMeta {
   const o = record(raw);
-  const tech = ids(o.tech, TECH.map((t) => t.id)).filter((id, _, all) => (TECH.find((t) => t.id === id)?.requires ?? []).every((r) => all.includes(r)));
+  let tech = ids(o.tech, TECH.map((t) => t.id));
+  for (let again = true; again; ) {
+    const kept = tech.filter((id) => (TECH.find((t) => t.id === id)?.requires ?? []).every((r) => tech.includes(r)));
+    again = kept.length !== tech.length;
+    tech = kept;
+  }
   const st = record(o.stats);
   const endings: Record<string, number> = {};
   for (const [k, n] of Object.entries(record(st.endings))) if (k !== "__proto__" && num(n) > 0) endings[k] = num(n);
@@ -116,8 +121,11 @@ export function toggleEquip(meta: Meta, id: string): boolean {
 export function modsFor(meta: Meta, mode: ModeId, charms: readonly string[], upgrades: Readonly<Record<string, number>> = {}, boss: string | null = null, stake = 0): Mods {
   const m = baseMods();
   for (const id of meta[mode].tech) TECH.find((t) => t.id === id)?.effect(m);
-  m.startCoins += Math.floor(meta.relics.length / 2); // the collection pays: 1 coin per 2 relics
-  for (const id of meta.loadout.slice(0, relicSlots(meta))) RELIC_PERKS[id]?.effect(m);
+  if (mode === "climb") {
+    // relics are won in Climb and are for Climb: Endless is measured without them
+    m.startCoins += Math.floor(meta.relics.length / 2); // the collection pays: 1 coin per 2 relics
+    for (const id of meta.loadout.slice(0, relicSlots(meta))) RELIC_PERKS[id]?.effect(m);
+  }
   for (const id of charms) (CHARMS.find((c) => c.id === id) ?? CURSES.find((c) => c.id === id))?.effect(m);
   for (const u of UPGRADES) if ((upgrades[u.id] ?? 0) > 0) u.effect(m, upgrades[u.id] as number);
   m.quotaMul *= 1 + STAKE_QUOTA * stake;
@@ -129,7 +137,7 @@ export function modsFor(meta: Meta, mode: ModeId, charms: readonly string[], upg
 export function canBuy(meta: Meta, mode: ModeId, id: string): boolean {
   const node = TECH.find((t) => t.id === id);
   const m = meta[mode];
-  return !!node && !m.tech.includes(id) && m.chips >= node.cost && node.requires.every((r) => m.tech.includes(r));
+  return !!node && (node.modes === undefined || node.modes.includes(mode)) && !m.tech.includes(id) && m.chips >= node.cost && node.requires.every((r) => m.tech.includes(r));
 }
 
 export function buyTech(meta: Meta, mode: ModeId, id: string): boolean {
@@ -165,12 +173,15 @@ export function combine(meta: Meta, a: string, b: string): Combined {
   return { kind: "new", id: made.id };
 }
 
+/** What the achievements read: a climb run, or the same numbers of an endless session. */
+export type RunView = Pick<Run, "stats" | "cardUpgrades" | "round">;
+
 export interface Achievement {
   id: string;
   name: string;
   text: string;
   chips: number;
-  test: (meta: Meta, run: Run | null) => boolean;
+  test: (meta: Meta, run: RunView | null) => boolean;
 }
 
 export const ACHIEVEMENTS: readonly Achievement[] = [
@@ -212,7 +223,7 @@ export const ACHIEVEMENTS: readonly Achievement[] = [
 const ACH_IDS = ACHIEVEMENTS.map((a) => a.id);
 
 /** Unlocks what is now true; pays the chips to the mode being played. Returns the new achievements. */
-export function checkAchievements(meta: Meta, mode: ModeId, run: Run | null): Achievement[] {
+export function checkAchievements(meta: Meta, mode: ModeId, run: RunView | null): Achievement[] {
   const fresh = ACHIEVEMENTS.filter((a) => !meta.ach.includes(a.id) && a.test(meta, run));
   for (const a of fresh) {
     meta.ach.push(a.id);

@@ -1,3 +1,4 @@
+import { rankOf } from "./cards";
 import type { CardUpgrade } from "./round";
 
 /** What a card can become: a higher rank (up to 3 levels), the best card for any hand (a joker, at most 3 in the deck), gold (hands with it pay 50% more), or any suit. */
@@ -31,7 +32,7 @@ export function applyCardUpgrade(ups: Readonly<Record<number, CardUpgrade>>, car
   const cur = ups[card] ?? {};
   const next: CardUpgrade = { ...cur };
   if (kind === "rank") {
-    if ((cur.rank ?? 0) >= MAX_RANK_LEVELS || cur.joker) return null;
+    if ((cur.rank ?? 0) >= MAX_RANK_LEVELS || cur.joker || rankOf(card) + (cur.rank ?? 0) >= 14) return null; // a card never rises above the ace
     next.rank = (cur.rank ?? 0) + 1;
   } else if (kind === "joker") {
     if (cur.joker || Object.values(ups).filter((u) => u.joker).length >= MAX_JOKERS) return null;

@@ -250,7 +250,7 @@ describe("the meta game", () => {
     const meta = newMeta();
     meta.climb.chips = 10_000;
     for (let pass = 0; pass < TECH.length; pass++) for (const t of TECH) buyTech(meta, "climb", t.id);
-    expect(meta.climb.tech).toHaveLength(TECH.length);
+    expect(meta.climb.tech).toHaveLength(TECH.filter((t) => t.modes === undefined || t.modes.includes("climb")).length);
   });
 
   it("restores a saved meta, and survives garbage", () => {

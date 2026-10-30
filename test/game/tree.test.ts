@@ -33,7 +33,7 @@ describe("the tech tree", () => {
   it("every node can be bought in order and changes the mods or the unlocks", () => {
     const meta = rich();
     for (let pass = 0; pass < TECH.length; pass++) for (const t of TECH) buyTech(meta, "climb", t.id);
-    expect(meta.climb.tech).toHaveLength(TECH.length);
+    expect(meta.climb.tech).toHaveLength(TECH.filter((t) => t.modes === undefined || t.modes.includes("climb")).length);
     for (const t of TECH) {
       const m = baseMods();
       t.effect(m);

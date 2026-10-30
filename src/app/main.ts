@@ -3,8 +3,9 @@ import { type Meta, type ModeId, addPlayTime, buyTech, combine, toggleEquip, che
 import { RELICS, CHARMS } from "../game/content";
 import { type Run, type Refusal, buyCardUpgrade, buyCharm, buyUpgrade, chooseEvent, closeRound, dealRound, drainEvents, drawHand, pickCharm, rerollDraft, rerollShop, startRun } from "../game/run";
 import type { CardKind } from "../game/cards-shop";
-import { type Session, autoHold, buySessionCard, buySessionUpgrade, canPrestige, dealSession, drawSession, endlessMods, prestige, startSession } from "../game/endless";
+import { type Session, autoHold, sessionView, buySessionCard, buySessionUpgrade, canPrestige, dealSession, drawSession, endlessMods, prestige, startSession } from "../game/endless";
 import { HAND_LABEL } from "../game/hands";
+import { holdSlots } from "../game/round";
 import { localStore } from "../storage";
 import { loadMeta, loadMode, loadRun, loadSession, save } from "./save";
 import { isMuted, setMuted, sfx, unlock } from "./sfx";
@@ -101,7 +102,7 @@ async function boot(): Promise<void> {
       if ((run.phase === "draft" || run.phase === "event") && lastPhase !== run.phase) sfx.draft();
       lastPhase = run.phase;
     }
-    for (const a of checkAchievements(meta, mode, mode === "climb" ? run : null)) {
+    for (const a of checkAchievements(meta, mode, mode === "climb" ? run : session ? sessionView(session) : null)) {
       toast(`Achievement: ${a.name} (+${a.chips} chips)`);
       sfx.win();
     }
@@ -278,6 +279,7 @@ async function boot(): Promise<void> {
         render();
         break;
       case "cardbuy":
+        if (!mods().cardKinds.includes(ui.cardKind)) ui.cardKind = "rank"; // what the shop shows is what is bought
         if (mode === "endless" ? session !== null && buySessionCard(session, Number(value), ui.cardKind, mods()) : run !== null && buyCardUpgrade(run, Number(value), ui.cardKind, mods())) {
           sfx.gold();
           changed();
@@ -297,7 +299,10 @@ async function boot(): Promise<void> {
       }
       case "holdcell": {
         const n = Number(value);
-        if (!ui.holdCells.delete(n)) ui.holdCells.add(n);
+        if (!ui.holdCells.delete(n)) {
+          if (holdSlots({ rows: [...ui.holdRows], cols: [...ui.holdCols], cells: [...ui.holdCells, n] }) > mods().holdMax) return void toast(`The hold limit is ${mods().holdMax}: a line is one, every five single cards are one.`);
+          ui.holdCells.add(n);
+        }
         sfx.click();
         render();
         break;
@@ -389,8 +394,10 @@ async function boot(): Promise<void> {
     if (m.autoRate <= 0 || performance.now() < nextAuto) return;
     nextAuto = performance.now() + 1000 / m.autoRate;
     if (session.hand === null || session.hand.phase !== "hold") {
-      const d = dealSession(session, m, Math.min(ui.slotBet, m.slotMaxBet));
+      const bet = Math.max(1, Math.min(ui.slotBet, m.slotMaxBet, Math.floor(session.coins / 10)));
+      const d = dealSession(session, m, bet);
       if (typeof d === "string") return;
+      clearHold();
     }
     const res = drawSession(session, m, autoHold((session.hand as { board: number[] }).board, m, session.cardUpgrades));
     if (typeof res === "string") return;
@@ -406,6 +413,8 @@ async function boot(): Promise<void> {
     if (!document.hidden && ui.screen === "game") addPlayTime(meta, mode, now - lastTick);
     lastTick = now;
   }, 1000);
+
+  document.addEventListener("visibilitychange", () => void (lastTick = performance.now())); // time in a hidden tab is not play time
 
   changed(); // a loaded run that was over still pays its chips once
   render();

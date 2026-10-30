@@ -80,9 +80,9 @@ describe("card upgrades", () => {
     expect(back?.cardUpgrades).toEqual({ 9: { rank: 1 } });
     const raw = JSON.parse(JSON.stringify(run));
     raw.cardUpgrades = { 9: { rank: 99, gold: "x" }, 60: { gold: true }, abc: { gold: true }, 4: 5, 5: {} };
-    expect(restoreRun(raw)?.cardUpgrades).toEqual({ 9: { rank: 12 } });
+    expect(restoreRun(raw)?.cardUpgrades).toEqual({ 9: { rank: 3 } });
     raw.hand = { board: [1, 2, 3], bet: 1, phase: "hold", draws: 0, maxDraws: 1 };
-    expect(restoreRun(raw)).toBeNull();
+    expect(restoreRun(raw)?.hand).toBeNull(); // the hand is dropped, the run goes on
   });
 });
 
