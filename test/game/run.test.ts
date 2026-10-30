@@ -21,7 +21,7 @@ function drive(run: Run, m = baseMods()): void {
       pickCharm(run, run.draft[0] as string, mk);
       continue;
     }
-    if (run.turnsLeft > 0 && run.coins >= m.slotLines) spinSlot(run, m, 1);
+    if (run.turnsLeft > 0 && run.coins >= 1) spinSlot(run, m, 1);
     else closeRound(run, m, mk);
     if (run.round >= 3) break;
   }
@@ -398,20 +398,28 @@ describe("charm shop and tickets", () => {
     expect(new Set([...run.draft, ...run.shop]).size).toBe(7);
   });
 
-  it("gives a ticket for a mission and for a coin scatter", () => {
+  it("gives a ticket for a mission", () => {
     const run = startRun(2, baseMods());
     run.missions = [{ id: "spin6", done: false }];
     run.coins = 500;
-    for (let i = 0; i < 6; i++) {
-      spinSlot(run, baseMods(), 1);
-    }
-    expect(run.tickets).toBeGreaterThanOrEqual(1); // the mission, plus any scatter
+    for (let i = 0; i < 6; i++) spinSlot(run, baseMods(), 1);
+    expect(run.tickets).toBeGreaterThanOrEqual(1);
+    expect(run.missions[0]?.done).toBe(true);
+  });
+
+  it("a coin scatter gives free spins that cost no coins and no turn", () => {
     const w = baseMods();
-    w.weights = { ...w.weights, cherry: 0, lemon: 0, bell: 0, bar: 0, seven: 0, wild: 0, coin: 1 };
-    const scatter = startRun(2, w);
-    scatter.missions = [];
-    spinSlot(scatter, w, 1);
-    expect(scatter.tickets).toBe(1);
+    w.weights = { ...w.weights, cherry: 0, lemon: 0, plum: 0, grape: 0, bell: 0, bar: 0, seven: 0, wild: 0, coin: 1 };
+    const run = startRun(2, w);
+    run.missions = [];
+    const res = spinSlot(run, w, 1);
+    expect(typeof res).toBe("object");
+    expect(run.freeSpins).toBe(7);
+    expect(run.stats.scatters).toBe(1);
+    const [coins, turns] = [run.coins, run.turnsLeft];
+    const next = spinSlot(run, baseMods(), 1);
+    expect(typeof next).toBe("object");
+    expect([run.coins, run.turnsLeft, run.freeSpins]).toEqual([coins + (next as { payout: number }).payout, turns, 6]);
   });
 
   it("buys a charm with tickets at its rarity price, once, and it joins the run", async () => {
@@ -494,23 +502,28 @@ describe("charm shop and tickets", () => {
 
 describe("symbol charms", () => {
   it("multiply the pay of one symbol and leave the others", async () => {
-    const { evaluate } = await import("../../src/game/slot");
-    const g = [["lemon", "bar", "bell"], ["cherry", "cherry", "cherry"], ["bar", "lemon", "bell"]] as const;
-    const grid = g.map((r) => [...r]) as Parameters<typeof evaluate>[0];
-    expect(evaluate(grid, 3, 1).payout).toBe(4);
-    expect(evaluate(grid, 3, 1, { cherry: 3 }).payout).toBe(12);
-    expect(evaluate(grid, 3, 1, { lemon: 9 }).payout).toBe(4);
+    const { spinBoard } = await import("../../src/game/board");
+    const { SYMS } = await import("../../src/game/slot");
+    const only = (sym: string) => Object.fromEntries(SYMS.map((s) => [s, s === sym ? 1 : 0])) as Record<(typeof SYMS)[number], number>;
+    const pay = (sym: string, symPay: Partial<Record<string, number>>): number => {
+      const sp = { ...baseMods().symPay, ...symPay } as Record<(typeof SYMS)[number], number>;
+      return spinBoard(makeRng(1), { rows: 3, cols: 3 }, 1, { weights: only(sym), symPay: sp, chainStep: 0, chainCap: 1, globalMul: 1 }).steps[0]?.pay ?? 0;
+    };
+    const base = pay("cherry", {});
+    expect(base).toBeGreaterThan(0);
+    expect(pay("cherry", { cherry: 3 })).toBeCloseTo(3 * base);
+    expect(pay("cherry", { lemon: 9 })).toBeCloseTo(base);
   });
 
   it("keep the slot return in a sane range with every symbol charm at once", async () => {
-    const { spin } = await import("../../src/game/slot");
+    const { spinBoard } = await import("../../src/game/board");
     const m = modsFor(newMeta(), ["cherrypick", "lemonade", "bellringer", "barfly", "sevenheaven"]);
     const rng = makeRng(321);
     let paid = 0;
-    const n = 40000;
-    for (let i = 0; i < n; i++) paid += spin(rng, 1, 1, m.weights, m.symPay).payout;
-    expect(paid / n).toBeGreaterThan(1);
-    expect(paid / n).toBeLessThan(2.5);
+    const n = 20000;
+    for (let i = 0; i < n; i++) paid += spinBoard(rng, { rows: m.rows, cols: m.cols }, 1, { weights: m.weights, symPay: m.symPay, chainStep: m.chainStep, chainCap: m.chainCap, globalMul: m.slotWinMul }).payout;
+    expect(paid / n).toBeGreaterThan(0.9);
+    expect(paid / n).toBeLessThan(3);
   });
 });
 

@@ -1,94 +1,12 @@
-import { type Rng, weighted } from "./rng";
+export type Sym = "cherry" | "lemon" | "plum" | "grape" | "bell" | "bar" | "seven" | "wild" | "coin";
+export const SYMS: readonly Sym[] = ["cherry", "lemon", "plum", "grape", "bell", "bar", "seven", "wild", "coin"];
 
-export type Sym = "cherry" | "lemon" | "bell" | "bar" | "seven" | "wild" | "coin";
-export const SYMS: readonly Sym[] = ["cherry", "lemon", "bell", "bar", "seven", "wild", "coin"];
+/** The symbols that form clusters. Wild joins any of them; coin is a scatter and never pays a cluster. */
+export type PaySym = "cherry" | "lemon" | "plum" | "grape" | "bell" | "bar" | "seven";
+export const PAY_SYMS: readonly PaySym[] = ["cherry", "lemon", "plum", "grape", "bell", "bar", "seven"];
 
-/** Pay for three of a kind, times the bet on that line. Coin is a scatter and pays no line. */
-export const LINE_PAY: Record<"cherry" | "lemon" | "bell" | "bar" | "seven", number> = {
-  cherry: 4,
-  lemon: 6,
-  bell: 10,
-  bar: 20,
-  seven: 60,
-};
-/** Cherry in the first two cells pays this even without a third. */
-export const CHERRY_PAIR = 1;
-/** Three or more coin scatters on the grid give a ticket. */
+/** Three or more coin scatters on the start board give free spins. */
 export const SCATTER_MIN = 3;
 
-export const BASE_WEIGHTS: Record<Sym, number> = { cherry: 7, lemon: 6, bell: 4, bar: 3, seven: 2, wild: 10, coin: 2 };
-/** The wild star shows on the middle reel only: on all three it substituted for everything and each extra star was worth +0.4 return (balance run, #9). */
-export const WILD_COLS: readonly number[] = [1];
-
-/** Cell indices (row, col) of each payline; a bet unlocks them in this order. */
-export const LINES: readonly (readonly [number, number][])[] = [
-  [[1, 0], [1, 1], [1, 2]],
-  [[0, 0], [0, 1], [0, 2]],
-  [[2, 0], [2, 1], [2, 2]],
-  [[0, 0], [1, 1], [2, 2]],
-  [[2, 0], [1, 1], [0, 2]],
-];
-export const ROWS = 3;
-export const COLS = 3;
-
-export interface LineWin {
-  line: number;
-  sym: Sym;
-  /** times the bet */
-  pay: number;
-  cells: readonly [number, number][];
-}
-
-export interface SlotResult {
-  grid: Sym[][];
-  wins: LineWin[];
-  /** coins paid, before any run bonus */
-  payout: number;
-  /** number of coin scatters when there are enough for a ticket, else 0 */
-  freeDrops: number;
-}
-
-export function spinGrid(rng: Rng, weights: Record<Sym, number>): Sym[][] {
-  const w = SYMS.map((s) => weights[s]);
-  const noWild = SYMS.map((s) => (s === "wild" ? 0 : weights[s]));
-  const grid: Sym[][] = [];
-  for (let r = 0; r < ROWS; r++) {
-    const row: Sym[] = [];
-    for (let c = 0; c < COLS; c++) row.push(SYMS[weighted(rng, WILD_COLS.includes(c) ? w : noWild)] as Sym);
-    grid.push(row);
-  }
-  return grid;
-}
-
-/** Pay of one line, in bets; wild stands in for any line symbol, never for coin. */
-export function linePay(syms: readonly Sym[]): { sym: Sym; pay: number } | null {
-  const first = syms.find((s) => s !== "wild");
-  const base: Sym = first ?? "seven";
-  if (base !== "coin" && syms.every((s) => s === base || s === "wild")) {
-    return { sym: base, pay: LINE_PAY[base as keyof typeof LINE_PAY] };
-  }
-  const [a, b] = syms;
-  if ((a === "cherry" || a === "wild") && (b === "cherry" || b === "wild")) return { sym: "cherry", pay: CHERRY_PAIR };
-  return null;
-}
-
-export function evaluate(grid: Sym[][], lines: number, bet: number, symPay?: Partial<Record<Sym, number>>): SlotResult {
-  const wins: LineWin[] = [];
-  let payout = 0;
-  for (let i = 0; i < Math.min(lines, LINES.length); i++) {
-    const cells = LINES[i] as readonly [number, number][];
-    const hit = linePay(cells.map(([r, c]) => (grid[r] as Sym[])[c] as Sym));
-    if (hit) {
-      const pay = hit.pay * (symPay?.[hit.sym] ?? 1);
-      wins.push({ line: i, sym: hit.sym, pay, cells });
-      payout += pay * bet;
-    }
-  }
-  let coins = 0;
-  for (const row of grid) for (const s of row) if (s === "coin") coins++;
-  return { grid, wins, payout, freeDrops: coins >= SCATTER_MIN ? coins : 0 };
-}
-
-export function spin(rng: Rng, lines: number, bet: number, weights: Record<Sym, number> = BASE_WEIGHTS, symPay?: Partial<Record<Sym, number>>): SlotResult {
-  return evaluate(spinGrid(rng, weights), lines, bet, symPay);
-}
+/** Relative weight of each symbol when a cell is filled. Starting values; the balance pass retunes them. */
+export const BASE_WEIGHTS: Record<Sym, number> = { cherry: 4, lemon: 4, plum: 4, grape: 4, bell: 4, bar: 3, seven: 2, wild: 0, coin: 1 };

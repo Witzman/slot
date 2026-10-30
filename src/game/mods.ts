@@ -5,7 +5,12 @@ import { BASE_WEIGHTS, SYMS, type Sym } from "./slot";
 export interface Mods {
   startCoins: number;
   turns: number;
-  slotLines: number;
+  /** board size: rows and columns, each unlocked on its own */
+  rows: number;
+  cols: number;
+  /** the chain multiplier grows by this much per cascade step, up to chainCap */
+  chainStep: number;
+  chainCap: number;
   slotMaxBet: number;
   slotWinMul: number;
   weights: Record<Sym, number>;
@@ -26,7 +31,10 @@ export function baseMods(): Mods {
   return {
     startCoins: 50,
     turns: 12,
-    slotLines: 1,
+    rows: 3,
+    cols: 3,
+    chainStep: 0.25,
+    chainCap: 5,
     slotMaxBet: 3,
     slotWinMul: 1,
     weights: { ...BASE_WEIGHTS },

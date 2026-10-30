@@ -11,9 +11,10 @@ export interface MissionDef {
 
 export const MISSIONS: readonly MissionDef[] = [
   { id: "spin6", key: "spins", target: 6, reward: 1, text: "Spin the reels 6 times" },
-  { id: "lines3", key: "slotWins", target: 3, reward: 2, text: "Win on 3 paylines" },
+  { id: "lines3", key: "slotWins", target: 3, reward: 2, text: "Win 3 clusters" },
+  { id: "chain3", key: "bestChain", target: 3, reward: 2, text: "Chain 3 cascades in one spin" },
   { id: "bigwin", key: "bestSlotWin", target: 20, reward: 3, text: "Win 20 coins with one spin" },
-  { id: "scatter", key: "scatters", target: 1, reward: 2, text: "Land three coin scatters" },
+  { id: "scatter", key: "scatters", target: 1, reward: 2, text: "Win a free spin with coin scatters" },
 ];
 
 export interface MissionState {
