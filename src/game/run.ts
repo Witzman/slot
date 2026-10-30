@@ -1,4 +1,5 @@
-import { BOSSES, BOSS_EVERY, CHARMS, CURSES, RARITY_PRICE, RARITY_WEIGHT, UPGRADES, upgradeCost } from "./content";
+import { BOSSES, BOSS_EVERY, CHARMS, CURSES, RARITY_PRICE, RARITY_WEIGHT, type Rarity, UPGRADES, VOUCHERS, upgradeCost } from "./content";
+import { setupById } from "./setups";
 import type { Mods } from "./mods";
 import { type Rng, int, makeRng, weighted } from "./rng";
 import { HAND_ORDER } from "./hands";
@@ -34,8 +35,16 @@ export interface Run {
   round: number;
   /** stake the run was started at: more quota, from stake 3 one turn less */
   stake: number;
+  /** the start deck or challenge the run began with ("classic" is the plain one) */
+  setup: string;
+  /** the day of a daily run (days since 1970), 0 for any other run */
+  daily: number;
   /** boss of the current round, or null */
   boss: string | null;
+  /** the line (0..9) a lockout boss locks this round, or -1 */
+  lockedLine: number;
+  /** the voucher on sale in the shop after this round, or null */
+  voucher: string | null;
   /** the event waiting for a choice while the phase is "event" */
   event: string | null;
   completed: number;
@@ -83,13 +92,17 @@ export function quotaFor(round: number, m: Mods): number {
   return Math.max(1, Math.round(QUOTA_BASE * Math.pow(QUOTA_GROWTH, early) * Math.pow(QUOTA_GROWTH_LATE, late) * m.quotaMul));
 }
 
-export function startRun(seed: number, m: Mods, stake = 0): Run {
+export function startRun(seed: number, m: Mods, stake = 0, setup = "classic", daily = 0): Run {
   const rng = makeRng(seed);
   const run: Run = {
     rng,
     round: 1,
     stake,
+    setup,
+    daily,
     boss: null,
+    lockedLine: -1,
+    voucher: null,
     event: null,
     completed: 0,
     turnsLeft: m.turns,
@@ -184,8 +197,9 @@ function settle(run: Run, m: Mods, mk: (charms: string[]) => Mods): void {
 /** The charm call and the shop after a cleared round (or the next round at once when every charm is owned). */
 function openDraft(run: Run, m: Mods, mk: (charms: string[]) => Mods): void {
   if (CHARMS.every((c) => run.charms.includes(c.id))) return beginRound(run, mk);
-  run.draft = drawCharms(run.rng, run.charms, [], 3);
+  run.draft = drawCall(run, []);
   run.shop = drawCharms(run.rng, run.charms, run.draft, 4);
+  run.voucher = drawVoucher(run.rng, run.upgrades);
   run.rerollsLeft = m.rerolls;
   run.phase = "draft";
 }
@@ -204,14 +218,52 @@ export function chooseEvent(run: Run, index: number, mk: (charms: string[]) => M
 }
 
 /** Up to n charms the run does not own and that are not in `skip`, drawn by rarity without repeats. */
-export function drawCharms(rng: Rng, owned: readonly string[], skip: readonly string[], n: number): string[] {
-  const pool = CHARMS.filter((c) => !owned.includes(c.id) && !skip.includes(c.id));
+export function drawCharms(rng: Rng, owned: readonly string[], skip: readonly string[], n: number, cap: Rarity = "rare"): string[] {
+  const pool = CHARMS.filter((c) => !owned.includes(c.id) && !skip.includes(c.id) && RARITY_ORDER.indexOf(c.rarity) <= RARITY_ORDER.indexOf(cap));
   const out: string[] = [];
   while (out.length < n && pool.length > 0) {
     const i = weighted(rng, pool.map((c) => RARITY_WEIGHT[c.rarity]));
     out.push((pool.splice(i, 1)[0] as { id: string }).id);
   }
   return out;
+}
+
+const RARITY_ORDER: readonly Rarity[] = ["common", "uncommon", "rare"];
+
+/** The first calls of a run (the offers after rounds 1 and 2) show common charms only: a new player is not asked to weigh a rare one. */
+export const COMMON_ONLY_UNTIL = 3;
+const rarityCap = (run: Run): Rarity => (run.round <= COMMON_ONLY_UNTIL ? "common" : "rare");
+
+/** The free call of three: common charms first in the first rounds, topped up from the rest when there are not enough of them. The shop is never limited. */
+function drawCall(run: Run, skip: readonly string[], also: readonly string[] = []): string[] {
+  const out = drawCharms(run.rng, run.charms, [...skip, ...also], 3, rarityCap(run));
+  return out.length >= 3 ? out : [...out, ...drawCharms(run.rng, run.charms, [...skip, ...also, ...out], 3 - out.length)];
+}
+
+/** One voucher not owned yet whose first tier (if it has one) is owned, or null when none is left. */
+export function drawVoucher(rng: Rng, upgrades: Readonly<Record<string, number>>): string | null {
+  const open = VOUCHERS.filter((v) => !(upgrades[v.id] ?? 0) && (v.requires === undefined || (upgrades[v.requires] ?? 0) > 0));
+  return open.length === 0 ? null : (open[int(rng, open.length)] as { id: string }).id;
+}
+
+/** Buy the voucher on sale with tickets: it is permanent for the run. */
+export function buyVoucher(run: Run, id: string): boolean {
+  const v = VOUCHERS.find((x) => x.id === id);
+  if (run.phase !== "draft" || !v || run.voucher !== id || run.tickets < v.price) return false;
+  run.tickets -= v.price;
+  run.upgrades[id] = 1;
+  run.voucher = null;
+  return true;
+}
+
+/** Skip the charm call: no charm, 2 tickets instead, and the next round begins. */
+export function skipDraft(run: Run, mk: (charms: string[]) => Mods): boolean {
+  if (run.phase !== "draft") return false;
+  run.tickets += 2;
+  run.shop = [];
+  run.voucher = null;
+  beginRound(run, mk);
+  return true;
 }
 
 export const charmPrice = (id: string): number => RARITY_PRICE[CHARMS.find((c) => c.id === id)?.rarity ?? "rare"];
@@ -244,9 +296,11 @@ export function rerollShop(run: Run): boolean {
 export function beginRound(run: Run, mk: (charms: string[]) => Mods): void {
   run.boss = run.round % BOSS_EVERY === 0 ? (BOSSES[int(run.rng, BOSSES.length)] as { id: string }).id : null;
   const m = mk(run.charms);
+  run.lockedLine = run.boss === "lockout" ? int(run.rng, LINES) : -1;
   if (run.boss) {
     const b = BOSSES.find((x) => x.id === run.boss);
     run.events.push(`BOSS: ${b?.name ?? ""} - ${b?.text ?? ""}`);
+    if (run.lockedLine >= 0) run.events.push(`Locked: ${lineName(run.lockedLine)} pays nothing this round.`);
   }
   run.phase = "play";
   run.draft = [];
@@ -254,10 +308,14 @@ export function beginRound(run: Run, mk: (charms: string[]) => Mods): void {
   run.turnsLeft = m.turns;
 }
 
+/** "row 3" or "column 2": a line by number (0..4 rows, 5..9 columns). */
+export const lineName = (line: number): string => (line < LINES / 2 ? `row ${line + 1}` : `column ${line - LINES / 2 + 1}`);
+
 export function pickCharm(run: Run, id: string, mk: (charms: string[]) => Mods): boolean {
   if (run.phase !== "draft" || !run.draft.includes(id)) return false;
   run.charms.push(id);
   run.shop = [];
+  run.voucher = null;
   beginRound(run, mk);
   return true;
 }
@@ -276,7 +334,7 @@ export function buyUpgrade(run: Run, id: string): boolean {
 
 export function rerollDraft(run: Run): boolean {
   if (run.phase !== "draft" || run.rerollsLeft <= 0) return false;
-  const fresh = drawCharms(run.rng, run.charms, [...run.draft, ...run.shop], 3);
+  const fresh = drawCall(run, run.shop, run.draft);
   if (fresh.length === 0) return false;
   run.rerollsLeft--;
   run.draft = fresh;
@@ -301,7 +359,9 @@ export function drawHand(run: Run, m: Mods, hold: Hold): RoundResult | "bad-hold
   const d = run.hand;
   if (run.phase !== "play" || d === null || d.phase !== "hold") return "no-hand";
   if (holdSlots(hold) > m.holdMax) return "bad-hold";
-  const res = drawRound(run.rng, d, hold, { removedRanks: m.removedRanks, singleHold: m.singleHold, upgrades: run.cardUpgrades, score: { handMul: m.handMul, globalMul: m.slotWinMul, lineBonus: m.lineBonus } });
+  if (!m.colHold && hold.cols.length > 0) return "bad-hold";
+  const deadLines = run.lockedLine >= 0 ? [...m.deadLines, run.lockedLine] : m.deadLines;
+  const res = drawRound(run.rng, d, hold, { removedRanks: m.removedRanks, singleHold: m.singleHold, upgrades: run.cardUpgrades, score: { handMul: m.handMul, globalMul: m.slotWinMul, lineBonus: m.lineBonus, deadLines } });
   if (typeof res === "string" || !res.final) return res;
   gain(run, res.payout);
   const s = run.stats;
@@ -372,6 +432,9 @@ export function restoreRun(raw: unknown): Run | null {
     const l = (o.upgrades as Record<string, unknown> | undefined)?.[u.id];
     if (typeof l === "number" && l >= 1 && l <= u.max) upgrades[u.id] = Math.floor(l);
   }
+  for (const v of VOUCHERS) if ((o.upgrades as Record<string, unknown> | undefined)?.[v.id] === 1) upgrades[v.id] = 1;
+  for (const v of VOUCHERS) if (v.requires !== undefined && upgrades[v.id] && !upgrades[v.requires]) delete upgrades[v.id];
+  const voucher = VOUCHERS.some((v) => v.id === o.voucher && !upgrades[v.id]) ? (o.voucher as string) : null;
   const num0 = (x: unknown): number => (typeof x === "number" && Number.isFinite(x) ? x : 0);
   const shop = Array.isArray(o.shop) ? o.shop.filter((c) => known.includes(c)) : [];
   const bossId = BOSSES.some((b) => b.id === o.boss) ? (o.boss as string) : null;
@@ -382,7 +445,9 @@ export function restoreRun(raw: unknown): Run | null {
   if (!("hand" in o) || !("cardUpgrades" in o)) return null; // a run from before the cards
   const hand = restoreHand(o.hand); // a hand that does not read back is dropped, the run goes on
   const cardUpgrades = restoreCardUpgrades(o.cardUpgrades);
-  return { ...(o as Run), stake: Math.min(5, Math.max(0, Math.floor(num0(o.stake)))), boss: bossId, event: o.phase === "event" ? eventId : null, stats, tickets: Math.max(0, Math.floor(num0(o.tickets))), hand, cardUpgrades, shop, shopRerolls: Math.max(0, Math.floor(num0(o.shopRerolls))), upgrades, events: [], found: 0, finished: o.finished === true, overReason: o.overReason ?? "" };
+  const setup = setupById(typeof o.setup === "string" ? o.setup : "")?.id ?? "classic";
+  const lockedLine = bossId === "lockout" && Number.isInteger(o.lockedLine) && (o.lockedLine as number) >= 0 && (o.lockedLine as number) < LINES ? (o.lockedLine as number) : -1;
+  return { ...(o as Run), stake: Math.min(5, Math.max(0, Math.floor(num0(o.stake)))), setup, daily: Math.max(0, Math.floor(num0(o.daily))), lockedLine, voucher, boss: bossId, event: o.phase === "event" ? eventId : null, stats, tickets: Math.max(0, Math.floor(num0(o.tickets))), hand, cardUpgrades, shop, shopRerolls: Math.max(0, Math.floor(num0(o.shopRerolls))), upgrades, events: [], found: 0, finished: o.finished === true, overReason: o.overReason ?? "" };
 }
 
 /** Buy an upgrade on one card of the deck with coins, for this run. Not a turn. False when it is not allowed or not affordable. */

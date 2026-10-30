@@ -4,7 +4,7 @@ import type { CardKind } from "../../src/game/cards-shop";
 import { type Meta, modsFor } from "../../src/game/meta";
 import type { Mods } from "../../src/game/mods";
 import { eventById } from "../../src/game/events";
-import { type Run, buyCardUpgrade, buyCharm, buyUpgrade, chooseEvent, closeRound, dealRound, drainEvents, drawHand, pickCharm, startRun } from "../../src/game/run";
+import { type Run, buyCardUpgrade, buyCharm, buyUpgrade, buyVoucher, chooseEvent, closeRound, dealRound, drainEvents, drawHand, pickCharm, startRun } from "../../src/game/run";
 import type { Hold } from "../../src/game/round";
 
 /** The time one round takes a human: deal, hold, draw, with the animation (spec 2026-10-30, a guess). */
@@ -21,6 +21,8 @@ export interface Policy {
   shop(run: Run, mk: (charms: string[]) => Mods): string | null;
   /** the id of a coin upgrade to buy now, or null */
   buy(run: Run, m: Mods): string | null;
+  /** buy the voucher on sale with tickets (after the shop) */
+  voucher?(run: Run): boolean;
   /** a card upgrade to buy now, or null */
   buyCard(run: Run, m: Mods): { card: number; kind: CardKind } | null;
   /** 0 or 1: which choice of the waiting event */
@@ -39,9 +41,9 @@ export interface Outcome {
 }
 
 /** Plays one run to its end (or `maxTurns`, the cap for runs that never end). */
-export function playRun(seed: number, meta: Meta, policy: Policy, stake = 0, maxTurns = 3000): Outcome {
-  const mkr = (run: Run) => (charms: string[]) => modsFor(meta, "climb", charms, run.upgrades, run.boss, run.stake);
-  const run = startRun(seed, modsFor(meta, "climb", [], {}, null, stake), stake);
+export function playRun(seed: number, meta: Meta, policy: Policy, stake = 0, maxTurns = 3000, setup = "classic"): Outcome {
+  const mkr = (run: Run) => (charms: string[]) => modsFor(meta, "climb", charms, run.upgrades, run.boss, run.stake, run.setup);
+  const run = startRun(seed, modsFor(meta, "climb", [], {}, null, stake, setup), stake, setup);
   const mk = mkr(run);
   let turns = 0;
   for (let guard = 0; guard < 400000 && run.phase !== "over" && turns < maxTurns; guard++) {
@@ -58,6 +60,7 @@ export function playRun(seed: number, meta: Meta, policy: Policy, stake = 0, max
         const id = policy.shop(run, mk);
         if (!id || !buyCharm(run, id)) break;
       }
+      if (run.voucher && policy.voucher?.(run)) buyVoucher(run, run.voucher);
       pickCharm(run, policy.draft(run, mk), mk);
       continue;
     }

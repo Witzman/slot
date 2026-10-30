@@ -55,7 +55,7 @@ export function smartHold(run: HoldState, m: Mods): Hold {
   if (!d || m.holdMax === 0) return NONE;
   const board = d.board;
   const drawsLeft = d.maxDraws - d.draws;
-  const ranked = Array.from({ length: LINES }, (_, l) => l).sort((a, b) => potential(board, b, run.cardUpgrades) - potential(board, a, run.cardUpgrades)).slice(0, 4);
+  const ranked = Array.from({ length: LINES }, (_, l) => l).filter((l) => m.colHold || l < SIZE).sort((a, b) => potential(board, b, run.cardUpgrades) - potential(board, a, run.cardUpgrades)).slice(0, 4);
   let held: number[] = [];
   let best = expected(run, m, board, NONE, 6, drawsLeft);
   while (held.length < Math.min(m.holdMax, 4)) {
@@ -155,6 +155,7 @@ export const smart: Policy = {
     }
     return best;
   },
+  voucher: () => true,
   buyCard(run, m) {
     // gold on a card that sits in a held line pays most; the bot keeps it simple: gild or rank up the cards of the deck at random once it is rich
     const kinds = CARD_KINDS.filter((k) => m.cardKinds.includes(k) && k !== "joker");
@@ -169,7 +170,7 @@ export const smart: Policy = {
 };
 
 /** Never holds anything: every round is two dealt hands in one. */
-export const never: Policy = { ...smart, hold: () => NONE, bet: () => 1, buy: () => null, buyCard: () => null, shop: () => null, draft: (run) => run.draft[0] as string, event: () => 1 };
+export const never: Policy = { ...smart, voucher: () => false, hold: () => NONE, bet: () => 1, buy: () => null, buyCard: () => null, shop: () => null, draft: (run) => run.draft[0] as string, event: () => 1 };
 
 /** Always holds as many lines as the limit allows, whatever they are (the first rows): a player who does not look. */
 export const always: Policy = { ...never, hold: (run, m) => holdOf(Array.from({ length: Math.min(m.holdMax, LINES) }, (_, i) => i)) };

@@ -1,7 +1,8 @@
 import "./style.css";
 import { type Meta, type ModeId, addPlayTime, buyTech, combine, toggleEquip, checkAchievements, fileRelic, finishRun, modsFor } from "../game/meta";
 import { RELICS, CHARMS } from "../game/content";
-import { type Run, type Refusal, buyCardUpgrade, buyCharm, buyUpgrade, chooseEvent, closeRound, dealRound, drainEvents, drawHand, pickCharm, rerollDraft, rerollShop, startRun } from "../game/run";
+import { dailySeed, setupById, setupUnlocked } from "../game/setups";
+import { type Run, type Refusal, buyCardUpgrade, buyCharm, buyUpgrade, buyVoucher, chooseEvent, closeRound, dealRound, drainEvents, drawHand, pickCharm, rerollDraft, rerollShop, skipDraft, startRun } from "../game/run";
 import type { CardKind } from "../game/cards-shop";
 import { type Session, autoHold, sessionView, buySessionCard, buySessionUpgrade, canPrestige, dealSession, drawSession, endlessMods, prestige, startSession } from "../game/endless";
 import { HAND_LABEL } from "../game/hands";
@@ -33,8 +34,8 @@ async function boot(): Promise<void> {
   let run: Run | null = await loadRun(store);
   let session: Session | null = await loadSession(store);
   let mode: ModeId = await loadMode(store);
-  const ui: UI = { screen: "start", tab: "play", slotBet: 1, holdRows: new Set(), holdCols: new Set(), holdCells: new Set(), result: null, slotNote: "", overChips: 0, muted: false, picked: [], craftNote: "", stake: 0, cardKind: "rank" };
-  const mk = (charms: string[]) => modsFor(meta, "climb", charms, run?.upgrades ?? {}, run?.boss ?? null, run?.stake ?? 0);
+  const ui: UI = { screen: "start", tab: "play", slotBet: 1, holdRows: new Set(), holdCols: new Set(), holdCells: new Set(), result: null, slotNote: "", overChips: 0, muted: false, picked: [], craftNote: "", stake: 0, setup: "classic", today: Math.floor(Date.now() / 86400000), cardKind: "rank" };
+  const mk = (charms: string[]) => modsFor(meta, "climb", charms, run?.upgrades ?? {}, run?.boss ?? null, run?.stake ?? 0, run?.setup ?? "classic");
   const idle = startSession(0, modsFor(meta, "endless", [], {}), 0);
   const mods = () => (mode === "endless" ? endlessMods(meta, session ?? idle) : mk(run?.charms ?? []));
   const view = (): View => ({ mode, run, session, meta, mods: mods(), ui });
@@ -110,10 +111,16 @@ async function boot(): Promise<void> {
     render();
   }
 
-  function newRun(): void {
-    const seed = (Date.now() ^ Math.imul(meta.seedCounter++, 2654435761)) >>> 0;
+  /** A run of the picked deck or challenge (a challenge has its own seed and no stake), or the daily run of today. */
+  function newRun(daily = false): void {
+    ui.today = Math.floor(Date.now() / 86400000);
+    const picked = setupById(daily || !setupUnlocked(meta, ui.setup) ? "classic" : ui.setup);
+    const fixed = picked?.kind === "challenge" ? (picked.seed ?? null) : null;
+    const seed = daily ? dailySeed(ui.today) : fixed ?? (Date.now() ^ Math.imul(meta.seedCounter++, 2654435761)) >>> 0;
     ui.stake = Math.min(ui.stake, meta.maxStake);
-    run = startRun(seed, modsFor(meta, "climb", [], {}, null, ui.stake), ui.stake);
+    const stake = daily || fixed !== null ? 0 : ui.stake;
+    const setup = picked?.id ?? "classic";
+    run = startRun(seed, modsFor(meta, "climb", [], {}, null, stake, setup), stake, setup, daily ? ui.today : 0);
     lastPhase = "play";
     ui.slotNote = "";
     clearHold();
@@ -196,6 +203,28 @@ async function boot(): Promise<void> {
         break;
       case "newrun":
         newRun();
+        break;
+      case "daily":
+        newRun(true);
+        break;
+      case "setup":
+        if (setupUnlocked(meta, value)) {
+          ui.setup = value;
+          sfx.click();
+          render();
+        }
+        break;
+      case "buyvoucher":
+        if (run && buyVoucher(run, value)) {
+          sfx.gold();
+          changed();
+        }
+        break;
+      case "skip":
+        if (run && skipDraft(run, mk)) {
+          sfx.click();
+          changed();
+        }
         break;
       case "menu":
         ui.screen = "start";

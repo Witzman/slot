@@ -1,7 +1,8 @@
-import { BASE_RELIC_SLOTS, BOSSES, CHARMS, CURSES, MAX_STAKE, RELICS, RELIC_PERKS, STAKE_QUOTA, STAKE_TURNS, TECH, UPGRADES } from "./content";
+import { BASE_RELIC_SLOTS, BOSSES, CHARMS, CURSES, MAX_STAKE, RELICS, RELIC_PERKS, STAKE_QUOTA, STAKE_TURNS, TECH, UPGRADES, VOUCHERS } from "./content";
 import { type Mods, baseMods } from "./mods";
 import type { Run } from "./run";
 import { type Rng, weighted } from "./rng";
+import { CHALLENGE_CHIPS, SETUPS, recordDaily, setupById } from "./setups";
 
 export type ModeId = "climb" | "endless";
 export const MODES: readonly ModeId[] = ["climb", "endless"];
@@ -38,12 +39,16 @@ export interface Meta {
   maxStake: number;
   /** relics equipped for the next run */
   loadout: string[];
+  /** challenges cleared */
+  challenges: string[];
+  /** the daily run: the day (days since 1970), its best result (quotas paid) and the best of the last day played */
+  daily: { day: number; best: number; prev: number };
 }
 
 const newMode = (): ModeMeta => ({ chips: 0, tech: [], stats: { sessions: 0, playMs: 0, spins: 0, endings: {} } });
 
 export function newMeta(): Meta {
-  return { v: 2, climb: newMode(), endless: newMode(), relics: [], ach: [], runs: 0, bestRound: 1, life: { spins: 0 }, seedCounter: 1, maxStake: 0, loadout: [] };
+  return { v: 2, climb: newMode(), endless: newMode(), relics: [], ach: [], runs: 0, bestRound: 1, life: { spins: 0 }, seedCounter: 1, maxStake: 0, loadout: [], challenges: [], daily: { day: 0, best: 0, prev: 0 } };
 }
 
 const num = (x: unknown, d = 0): number => (typeof x === "number" && Number.isFinite(x) && x >= 0 ? Math.floor(x) : d);
@@ -97,6 +102,8 @@ export function restoreMeta(raw: unknown): Meta {
     seedCounter: Math.max(1, num(o.seedCounter, 1)),
     maxStake: Math.min(MAX_STAKE, num(o.maxStake)),
     loadout: ids(o.loadout, Object.keys(RELIC_PERKS)).filter((id) => owned.includes(id)).slice(0, slots),
+    challenges: ids(o.challenges, SETUPS.filter((x) => x.kind === "challenge").map((x) => x.id)),
+    daily: { day: num(record(o.daily).day), best: num(record(o.daily).best), prev: num(record(o.daily).prev) },
   };
 }
 
@@ -118,7 +125,7 @@ export function toggleEquip(meta: Meta, id: string): boolean {
   return true;
 }
 
-export function modsFor(meta: Meta, mode: ModeId, charms: readonly string[], upgrades: Readonly<Record<string, number>> = {}, boss: string | null = null, stake = 0): Mods {
+export function modsFor(meta: Meta, mode: ModeId, charms: readonly string[], upgrades: Readonly<Record<string, number>> = {}, boss: string | null = null, stake = 0, setup = "classic"): Mods {
   const m = baseMods();
   for (const id of meta[mode].tech) TECH.find((t) => t.id === id)?.effect(m);
   if (mode === "climb") {
@@ -128,6 +135,8 @@ export function modsFor(meta: Meta, mode: ModeId, charms: readonly string[], upg
   }
   for (const id of charms) (CHARMS.find((c) => c.id === id) ?? CURSES.find((c) => c.id === id))?.effect(m);
   for (const u of UPGRADES) if ((upgrades[u.id] ?? 0) > 0) u.effect(m, upgrades[u.id] as number);
+  for (const v of VOUCHERS) if ((upgrades[v.id] ?? 0) > 0) v.effect(m);
+  setupById(setup)?.effect(m);
   m.quotaMul *= 1 + STAKE_QUOTA * stake;
   if (stake >= STAKE_TURNS) m.turns -= 1;
   if (boss) BOSSES.find((b) => b.id === boss)?.effect(m);
@@ -214,6 +223,9 @@ export const ACHIEVEMENTS: readonly Achievement[] = [
   { id: "boss3", name: "Boss Rush", text: "Beat three bosses in one run.", chips: 10, test: (_, r) => (r?.stats.bosses ?? 0) >= 3 },
   { id: "stake1", name: "Raising the Stakes", text: "Unlock stake 1.", chips: 3, test: (m) => m.maxStake >= 1 },
   { id: "stake3", name: "High Stakes Hero", text: "Unlock stake 3.", chips: 8, test: (m) => m.maxStake >= 3 },
+  { id: "challenge1", name: "Challenger", text: "Clear a challenge.", chips: 5, test: (m) => m.challenges.length >= 1 },
+  { id: "challenge3", name: "Unbroken", text: "Clear every challenge.", chips: 12, test: (m) => m.challenges.length >= 3 },
+  { id: "daily1", name: "Daily Bread", text: "Play the daily run.", chips: 3, test: (m) => m.daily.day > 0 },
   { id: "road3", name: "Road Warrior", text: "Face 3 events in one run.", chips: 4, test: (_, r) => (r?.stats.events ?? 0) >= 3 },
   { id: "gear2", name: "Dressed for the Job", text: "Equip 2 relics.", chips: 3, test: (m) => m.loadout.length >= 2 },
   { id: "tech5", name: "Engineer", text: "Own 5 tech upgrades in one mode.", chips: 3, test: (m) => Math.max(m.climb.tech.length, m.endless.tech.length) >= 5 },
@@ -247,5 +259,12 @@ export function finishRun(meta: Meta, run: Run): number {
   stats.endings[ending] = (stats.endings[ending] ?? 0) + 1;
   meta.bestRound = Math.max(meta.bestRound, run.round);
   meta.life.spins += run.stats.spins;
+  if (run.daily > 0) recordDaily(meta, run.daily, run.completed);
+  const challenge = setupById(run.setup);
+  if (challenge?.kind === "challenge" && run.completed >= (challenge.goal ?? Infinity) && !meta.challenges.includes(challenge.id)) {
+    meta.challenges.push(challenge.id);
+    meta.climb.chips += CHALLENGE_CHIPS;
+    return chips + CHALLENGE_CHIPS;
+  }
   return chips;
 }
