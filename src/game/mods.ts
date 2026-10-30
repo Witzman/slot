@@ -50,6 +50,12 @@ export interface Mods {
   mystery: number;
   /** nudges a round has: shift a row or a column one cell before the draw */
   nudges: number;
+  /** Endless: the machine buys the cheapest shop upgrade it can afford while it plays (from milestone 3) */
+  autoBuy: boolean;
+  /** Endless: the machine prestiges by itself at milestone 9 */
+  autoPrestige: boolean;
+  /** Endless: double-or-nothing tries after a win (0: none) */
+  gamble: number;
 }
 
 export function baseMods(): Mods {
@@ -79,6 +85,9 @@ export function baseMods(): Mods {
     goldCells: [],
     mystery: 0,
     nudges: 0,
+    autoBuy: false,
+    autoPrestige: false,
+    gamble: 0,
   };
 }
 

@@ -3,6 +3,7 @@ import { dealSession, endlessMods, startSession } from "../../src/game/endless";
 import { buyTech, modsFor, newMeta } from "../../src/game/meta";
 import { dealRound, startRun } from "../../src/game/run";
 import { type UI, type View, hud, overlay, shopPanel, slotPanel, startScreen } from "../../src/app/view";
+import { endlessPanel } from "../../src/app/endless-view";
 
 const ui = (over: Partial<UI> = {}): UI => ({ screen: "game", tab: "play", slotBet: 1, holdRows: new Set(), holdCols: new Set(), holdCells: new Set(), result: null, slotNote: "", overChips: 0, muted: false, picked: [], craftNote: "", stake: 0, setup: "classic", today: 20000, nudge: false, cardKind: "rank", ...over });
 const climb = (over: Partial<View> = {}): View => {
@@ -246,5 +247,26 @@ describe("grid tactics on screen", () => {
 
   it("offers no nudge without one", () => {
     expect(slotPanel(withHand({ nudges: 0 }))).not.toContain("nudgemode");
+  });
+});
+
+describe("endless depth on screen", () => {
+  it("offers red, black and keep while a win waits, with the stake and the tries", () => {
+    const v = endless();
+    (v.session as { gamble: unknown }).gamble = { stake: 40, left: 2 };
+    const html = slotPanel(v) + (v.session ? endlessPanel(v) : "");
+    expect(html).toContain("Double 40 coins? 2 tries left");
+    for (const a of ['data-act="gamble" data-v="red"', 'data-act="gamble" data-v="black"', 'data-act="takewin"']) expect(html).toContain(a);
+  });
+
+  it("shows ascend once enough prestiges are made, and the stars", () => {
+    const v = endless();
+    expect(endlessPanel(v)).not.toContain("ascend");
+    v.meta.endless.prestiges = 4;
+    expect(endlessPanel(v)).toContain('data-act="ascend"');
+    v.meta.endless.prestiges = 1;
+    v.meta.endless.stars = 2;
+    expect(endlessPanel(v)).toContain("2 stars · ascension opens after 4 prestiges (1 so far)");
+    expect(hud(v)).toContain("2★");
   });
 });

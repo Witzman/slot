@@ -4,7 +4,7 @@ import { RELICS, CHARMS } from "../game/content";
 import { dailySeed, setupById, setupUnlocked } from "../game/setups";
 import { type Run, type Refusal, buyCardUpgrade, buyCharm, buyUpgrade, buyVoucher, takeLoan, chooseEvent, closeRound, dealRound, drainEvents, drawHand, pickCharm, rerollDraft, rerollShop, skipDraft, startRun } from "../game/run";
 import type { CardKind } from "../game/cards-shop";
-import { type Session, autoHold, sessionView, buySessionCard, buySessionUpgrade, canPrestige, dealSession, drawSession, endlessMods, prestige, startSession } from "../game/endless";
+import { ENDLESS_SHOP, type Session, ascend, autoBuy, autoHold, autoPrestigeDue, canAscend, canPrestige, dealSession, drawSession, endlessMods, gamble, playOffline, prestige, sessionView, startSession, takeWin, buySessionCard, buySessionUpgrade } from "../game/endless";
 import { HAND_LABEL } from "../game/hands";
 import { holdSlots, nudge } from "../game/round";
 import { localStore } from "../storage";
@@ -56,9 +56,16 @@ async function boot(): Promise<void> {
     setTimeout(() => t.remove(), 3800);
   }
 
+  // the rounds auto-play played while the page was closed (the app measures the time, the game layer reads no clock)
+  if (session !== null && session.autoOn && session.savedAt > 0) {
+    const away = playOffline(session, endlessMods(meta, session), Date.now() - session.savedAt);
+    if (away.rounds > 0) setTimeout(() => toast(`While you were away: ${away.rounds} rounds, ${away.coins >= 0 ? "+" : ""}${away.coins} coins.`), 400);
+  }
+
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   function persist(now = false): void {
     clearTimeout(saveTimer);
+    if (session) session.savedAt = Date.now();
     const go = (): void => void save(store, meta, run, session, mode).catch((e) => console.error("could not save", e));
     if (now) go();
     else saveTimer = setTimeout(go, 400);
@@ -280,7 +287,7 @@ async function boot(): Promise<void> {
         break;
       case "newsession": {
         const seed = (Date.now() ^ Math.imul(meta.seedCounter++, 2654435761)) >>> 0;
-        session = startSession(seed, modsFor(meta, "endless", [], {}), 0);
+        session = startSession(seed, modsFor(meta, "endless", [], {}), meta.endless.prestiges);
         ui.slotNote = "";
         ui.result = null;
         clearHold();
@@ -310,6 +317,34 @@ async function boot(): Promise<void> {
           ui.slotNote = "";
           ui.result = null;
           clearHold();
+          changed();
+        }
+        break;
+      case "gamble":
+        if (session) {
+          const res = gamble(session, value === "red" ? "red" : "black");
+          if (res !== "none") {
+            toast(res.won ? "Doubled!" : "Gone.");
+            res.won ? sfx.win() : sfx.lose();
+            changed();
+          }
+        }
+        break;
+      case "takewin":
+        if (session) {
+          takeWin(session);
+          sfx.click();
+          changed();
+        }
+        break;
+      case "ascend":
+        if (canAscend(meta) && confirm("Ascend? Your Endless chips, tree nodes and prestiges are gone for good. You get a star: every win pays 50% more, for ever.")) {
+          ascend(meta);
+          session = null;
+          ui.result = null;
+          clearHold();
+          toast("Ascended: a star for ever.");
+          sfx.big();
           changed();
         }
         break;
@@ -444,7 +479,16 @@ async function boot(): Promise<void> {
     const m = mods();
     if (m.autoRate <= 0 || performance.now() < nextAuto) return;
     nextAuto = performance.now() + 1000 / m.autoRate;
+    if ((session.hand === null || session.hand.phase !== "hold") && autoPrestigeDue(session, m)) {
+      const chips = prestige(session, meta);
+      toast(`Auto-prestige: +${chips} chips.`);
+      sfx.big();
+      changed();
+      return;
+    }
     if (session.hand === null || session.hand.phase !== "hold") {
+      const bought = autoBuy(session, m);
+      if (bought) toast(`Auto-buy: ${ENDLESS_SHOP.find((u) => u.id === bought)?.name ?? bought}`);
       const bet = Math.max(1, Math.min(ui.slotBet, m.slotMaxBet, Math.floor(session.coins / 10)));
       const d = dealSession(session, m, bet);
       if (typeof d === "string") return;

@@ -27,6 +27,10 @@ export const TECH: readonly TechNode[] = [
   { id: "slotmul", branch: "economy", name: "Polished Felt", text: "Every round pays 15% more.", cost: 16, requires: ["slotbet"], effect: (m) => void (m.slotWinMul *= 1.15) },
   { id: "interest1", branch: "economy", name: "Savings Account", text: "Keep 5% of your coins as interest each round.", cost: 10, requires: ["purse2"], modes: ["climb"], effect: (m) => void (m.interest += 0.05) },
   { id: "auto1", branch: "economy", name: "Auto-Play", text: "Endless mode: the machine plays a round by itself every 4 seconds.", cost: 10, requires: ["purse1"], modes: ["endless"], effect: (m) => void (m.autoRate = Math.max(m.autoRate, 0.25)) },
+  { id: "autobuy", branch: "economy", name: "Auto-Buy", text: "Endless mode: auto-play buys the cheapest upgrade it can afford, once milestone 3 is reached.", cost: 14, requires: ["auto1"], modes: ["endless"], effect: (m) => void (m.autoBuy = true) },
+  { id: "autoprest", branch: "economy", name: "Auto-Prestige", text: "Endless mode: auto-play prestiges by itself at milestone 9.", cost: 24, requires: ["autobuy"], modes: ["endless"], effect: (m) => void (m.autoPrestige = true) },
+  { id: "gamble1", branch: "economy", name: "Double or Nothing", text: "Endless mode: after a win, bet it on red or black: it doubles or is gone. One try.", cost: 10, requires: ["purse1"], modes: ["endless"], effect: (m) => void (m.gamble = Math.max(m.gamble, 1)) },
+  { id: "gamble2", branch: "economy", name: "Press Your Luck", text: "Endless mode: up to three tries in a row.", cost: 16, requires: ["gamble1"], modes: ["endless"], effect: (m) => void (m.gamble = Math.max(m.gamble, 3)) },
   { id: "auto2", branch: "economy", name: "Turbo Play", text: "Endless mode: a round every second.", cost: 20, requires: ["auto1"], modes: ["endless"], effect: (m) => void (m.autoRate = Math.max(m.autoRate, 1)) },
 
   // hold: a round starts with at most two held lines, the tree widens that and adds single cards and free draws
