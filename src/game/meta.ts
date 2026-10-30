@@ -12,7 +12,7 @@ export interface Meta {
   ach: string[];
   runs: number;
   bestRound: number;
-  life: { spins: number; hands: number; drops: number; pusherPaid: number };
+  life: { spins: number };
   seedCounter: number;
   /** highest stake a run may start at */
   maxStake: number;
@@ -21,11 +21,16 @@ export interface Meta {
 }
 
 export function newMeta(): Meta {
-  return { v: 1, chips: 0, tech: [], relics: [], ach: [], runs: 0, bestRound: 1, life: { spins: 0, hands: 0, drops: 0, pusherPaid: 0 }, seedCounter: 1, maxStake: 0, loadout: [] };
+  return { v: 1, chips: 0, tech: [], relics: [], ach: [], runs: 0, bestRound: 1, life: { spins: 0 }, seedCounter: 1, maxStake: 0, loadout: [] };
 }
 
 const num = (x: unknown, d = 0): number => (typeof x === "number" && Number.isFinite(x) && x >= 0 ? Math.floor(x) : d);
 const ids = (x: unknown, known: readonly string[]): string[] => (Array.isArray(x) ? [...new Set(x.filter((v): v is string => typeof v === "string" && known.includes(v)))] : []);
+
+/** Chips the removed pusher and poker tech nodes cost (#10): a saved meta that owns one gets the chips back. */
+export const REMOVED_TECH_COST: Readonly<Record<string, number>> = { pbet: 4, pfull: 7, ptwo: 9, pdraw: 18, gold1: 4, prize1: 6, free1: 8, zone4: 12, zone5: 20, pmul: 15 };
+
+const refund = (raw: unknown): number => (Array.isArray(raw) ? [...new Set(raw)].reduce<number>((sum, id) => sum + (typeof id === "string" && Object.hasOwn(REMOVED_TECH_COST, id) ? (REMOVED_TECH_COST[id] as number) : 0), 0) : 0);
 
 /** Storage is untrusted: anything unreadable becomes a fresh meta, unknown ids are dropped. */
 export function restoreMeta(raw: unknown): Meta {
@@ -38,13 +43,13 @@ export function restoreMeta(raw: unknown): Meta {
   const slots = BASE_RELIC_SLOTS + tech.filter((t) => t === "case1" || t === "case2").length;
   return {
     v: 1,
-    chips: num(o.chips),
+    chips: num(o.chips) + refund(o.tech),
     tech,
     relics: owned,
     ach: ids(o.ach, ACH_IDS),
     runs: num(o.runs),
     bestRound: Math.max(1, num(o.bestRound, 1)),
-    life: { spins: num(life.spins), hands: num(life.hands), drops: num(life.drops), pusherPaid: num(life.pusherPaid) },
+    life: { spins: num(life.spins) },
     seedCounter: Math.max(1, num(o.seedCounter, 1)),
     maxStake: Math.min(MAX_STAKE, num(o.maxStake)),
     loadout: ids(o.loadout, Object.keys(RELIC_PERKS)).filter((id) => owned.includes(id)).slice(0, slots),
@@ -91,7 +96,7 @@ export function buyTech(meta: Meta, id: string): boolean {
   return true;
 }
 
-/** File a fallen prize as a relic: a new one when any is missing, else a duplicate (null). */
+/** File a relic won from a boss: a new one when any is missing, else a duplicate (null). */
 export function fileRelic(meta: Meta, rng: Rng): string | null {
   const missing = RELICS.filter((r) => !r.craft && !meta.relics.includes(r.id));
   if (missing.length === 0) return null;
@@ -123,12 +128,9 @@ export interface Achievement {
 export const ACHIEVEMENTS: readonly Achievement[] = [
   { id: "first", name: "First Pull", text: "Spin the reels once.", chips: 1, test: (m, r) => m.life.spins + (r?.stats.spins ?? 0) >= 1 },
   { id: "seven", name: "Lucky Seven", text: "Hit three sevens on a line.", chips: 3, test: (_, r) => (r?.stats.jackpots ?? 0) >= 1 },
-  { id: "flush", name: "Flush!", text: "Make a flush or better.", chips: 2, test: (_, r) => (r?.stats.bestHand ?? 0) >= 5 },
-  { id: "royal", name: "Royalty", text: "Make a royal flush.", chips: 10, test: (_, r) => (r?.stats.bestHand ?? 0) >= 9 },
   { id: "r3", name: "Getting Warm", text: "Reach round 3.", chips: 2, test: (_, r) => (r?.round ?? 0) >= 3 },
   { id: "r5", name: "On a Roll", text: "Reach round 5.", chips: 4, test: (_, r) => (r?.round ?? 0) >= 5 },
   { id: "r8", name: "High Stakes", text: "Reach round 8.", chips: 8, test: (_, r) => (r?.round ?? 0) >= 8 },
-  { id: "rain", name: "Coin Rain", text: "Get 40 coins out of the pusher in one run.", chips: 3, test: (_, r) => (r?.stats.pusherPaid ?? 0) >= 40 },
   { id: "hoard", name: "Hoarder", text: "Hold 200 coins at once.", chips: 4, test: (_, r) => (r?.stats.maxCoins ?? 0) >= 200 },
   { id: "relic1", name: "Finders Keepers", text: "Find your first relic.", chips: 2, test: (m) => m.relics.length >= 1 },
   { id: "relic6", name: "Collector", text: "Find 6 relics.", chips: 4, test: (m) => m.relics.length >= 6 },
@@ -163,8 +165,5 @@ export function finishRun(meta: Meta, run: Run): number {
   meta.runs++;
   meta.bestRound = Math.max(meta.bestRound, run.round);
   meta.life.spins += run.stats.spins;
-  meta.life.hands += run.stats.hands;
-  meta.life.drops += run.stats.drops;
-  meta.life.pusherPaid += run.stats.pusherPaid;
   return chips;
 }

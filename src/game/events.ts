@@ -87,7 +87,7 @@ export const EVENTS: readonly RunEvent[] = [
           return `${u.name} is now level ${r.upgrades[u.id]}.`;
         },
       },
-      { text: "Take two free drops instead.", apply: (r) => ((r.freeDrops += 2), "+2 free drops.") },
+      { text: "Take 2 tickets instead.", apply: (r) => ((r.tickets += 2), "+2 tickets.") },
     ],
   },
   {
@@ -95,8 +95,8 @@ export const EVENTS: readonly RunEvent[] = [
     title: "Coin Shower",
     text: "The ceiling rattles. Something is about to fall.",
     choices: [
-      { text: "Let it fall on the shelf: 25 coins pour in.", apply: (r) => (r.pour.push(...Array<"coin" | "gold">(5).fill("gold")), "25 coins pour onto the shelf.") },
-      { text: "Catch what you can: +8 coins.", apply: (r) => ((r.coins += 8), "+8 coins.") },
+      { text: "Hold out your hat: +25 coins.", apply: (r) => ((r.coins += 25), "+25 coins.") },
+      { text: "Catch what you can: +8 coins and a ticket.", apply: (r) => ((r.coins += 8), (r.tickets += 1), "+8 coins, +1 ticket.") },
     ],
   },
   {
@@ -122,7 +122,7 @@ export const EVENTS: readonly RunEvent[] = [
     title: "Lucky Day",
     text: "Everything you touch turns up cherries.",
     choices: [
-      { text: "Raise the pusher zone by one.", apply: (r) => ((r.zone = Math.min(5, r.zone + 1)), `Zone ${r.zone}.`) },
+      { text: "Take a ticket and 5 coins.", apply: (r) => ((r.tickets += 1), (r.coins += 5), "+1 ticket, +5 coins.") },
       { text: "Pocket 10 coins.", apply: (r) => ((r.coins += 10), "+10 coins.") },
     ],
   },
