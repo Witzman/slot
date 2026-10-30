@@ -1,7 +1,7 @@
 import { BOSSES, BOSS_EVERY, CHARMS, CURSES, RARITY_PRICE, RARITY_WEIGHT, UPGRADES, upgradeCost } from "./content";
 import type { Mods } from "./mods";
 import { type Rng, int, makeRng, weighted } from "./rng";
-import { type SlotResult, spin } from "./slot";
+import { type SpinResult, spinBoard } from "./board";
 import { eventById, rollEvent } from "./events";
 import { type MissionState, drawMissions, updateMissions } from "./missions";
 
@@ -11,6 +11,8 @@ export interface RunStats {
   bestSlotWin: number;
   jackpots: number;
   scatters: number;
+  /** most cascade steps in one spin */
+  bestChain: number;
   relics: number;
   maxCoins: number;
   bosses: number;
@@ -39,6 +41,8 @@ export interface Run {
   draft: string[];
   /** run tickets: earned by rounds, missions and scatters, spent on charms in the shop */
   tickets: number;
+  /** free spins from coin scatters: a free spin costs no coins and no turn */
+  freeSpins: number;
   /** charms for sale after this round */
   shop: string[];
   /** shop re-rolls bought this round */
@@ -86,10 +90,11 @@ export function startRun(seed: number, m: Mods, stake = 0): Run {
     phase: "play",
     draft: [],
     tickets: m.startTickets,
+    freeSpins: 0,
     shop: [],
     shopRerolls: 0,
     rerollsLeft: m.rerolls,
-    stats: { spins: 0, slotWins: 0, bestSlotWin: 0, jackpots: 0, scatters: 0, relics: 0, maxCoins: m.startCoins, bosses: 0, events: 0 },
+    stats: { spins: 0, slotWins: 0, bestSlotWin: 0, jackpots: 0, scatters: 0, bestChain: 0, relics: 0, maxCoins: m.startCoins, bosses: 0, events: 0 },
     missions: [],
     chipsPending: 0,
     events: [],
@@ -118,7 +123,7 @@ export const MIN_BET = 1;
 
 /** The round can be closed once the turns are gone or nothing more can be paid for. */
 export function canClose(run: Run, m: Mods): boolean {
-  return run.phase === "play" && (run.turnsLeft <= 0 || run.coins < m.slotLines * MIN_BET);
+  return run.phase === "play" && (run.turnsLeft <= 0 || run.coins < MIN_BET);
 }
 
 /** Close the round: pay the quota from the wallet (coins still on the shelf do not count) and offer charms, or end the run. */
@@ -265,26 +270,29 @@ export function rerollDraft(run: Run): boolean {
   return true;
 }
 
-/** One pull: pay the bet, spin the reels, and the win goes into the wallet. */
-export function spinSlot(run: Run, m: Mods, bet: number): Refusal | SlotResult {
-  const no = canAct(run);
+/** One pull: pay the bet, fill the board and play the cascade; the win goes into the wallet. A free spin (from scatters) costs no coins and no turn. */
+export function spinSlot(run: Run, m: Mods, bet: number): Refusal | SpinResult {
+  const free = run.phase === "play" && run.freeSpins > 0;
+  const no = free ? null : canAct(run);
   if (no) return no;
+  if (run.phase !== "play") return "not-playing";
   if (!Number.isInteger(bet) || bet < 1 || bet > m.slotMaxBet) return "bad-bet";
-  const cost = bet * m.slotLines;
-  if (cost > run.coins) return "no-coins";
-  run.coins -= cost;
-  run.turnsLeft--;
-  const res = spin(run.rng, m.slotLines, bet, m.weights, m.symPay);
-  res.payout = Math.round(res.payout * m.slotWinMul);
-  gain(run, res.payout);
-  if (res.freeDrops > 0) {
-    run.tickets++;
-    run.stats.scatters++;
+  if (!free && bet > run.coins) return "no-coins";
+  if (free) run.freeSpins--;
+  else {
+    run.coins -= bet;
+    run.turnsLeft--;
   }
+  const res = spinBoard(run.rng, { rows: m.rows, cols: m.cols }, bet, { weights: m.weights, symPay: m.symPay, chainStep: m.chainStep, chainCap: m.chainCap, globalMul: m.slotWinMul });
+  gain(run, res.payout);
+  run.freeSpins += res.freeSpins;
   const s = run.stats;
   s.spins++;
-  s.slotWins += res.wins.length;
-  s.jackpots += res.wins.filter((w) => w.sym === "seven").length;
+  if (res.freeSpins > 0) s.scatters++;
+  const clusters = res.steps.flatMap((st) => st.clusters);
+  s.slotWins += clusters.length;
+  s.jackpots += clusters.filter((c) => c.sym === "seven").length;
+  s.bestChain = Math.max(s.bestChain, res.steps.length);
   if (res.payout > s.bestSlotWin) s.bestSlotWin = res.payout;
   updateMissions(run);
   return res;
@@ -322,7 +330,7 @@ export function restoreRun(raw: unknown): Run | null {
   const bossId = BOSSES.some((b) => b.id === o.boss) ? (o.boss as string) : null;
   const eventId = eventById(o.event ?? null) ? (o.event as string) : null;
   const st = o.stats as Partial<RunStats>;
-  const stats = { ...(o.stats as RunStats), events: Math.max(0, Math.floor(num0(st.events))), bosses: Math.max(0, Math.floor(num0(st.bosses))), scatters: Math.max(0, Math.floor(num0(st.scatters))) };
+  const stats = { ...(o.stats as RunStats), events: Math.max(0, Math.floor(num0(st.events))), bosses: Math.max(0, Math.floor(num0(st.bosses))), scatters: Math.max(0, Math.floor(num0(st.scatters))), bestChain: Math.max(0, Math.floor(num0(st.bestChain))) };
   if (o.phase === "event" && !eventId) return null;
-  return { ...(o as Run), stake: Math.min(5, Math.max(0, Math.floor(num0(o.stake)))), boss: bossId, event: o.phase === "event" ? eventId : null, stats, tickets: Math.max(0, Math.floor(num0(o.tickets))), shop, shopRerolls: Math.max(0, Math.floor(num0(o.shopRerolls))), upgrades, events: [], found: 0, finished: o.finished === true, overReason: o.overReason ?? "" };
+  return { ...(o as Run), stake: Math.min(5, Math.max(0, Math.floor(num0(o.stake)))), boss: bossId, event: o.phase === "event" ? eventId : null, stats, tickets: Math.max(0, Math.floor(num0(o.tickets))), freeSpins: Math.max(0, Math.floor(num0(o.freeSpins))), shop, shopRerolls: Math.max(0, Math.floor(num0(o.shopRerolls))), upgrades, events: [], found: 0, finished: o.finished === true, overReason: o.overReason ?? "" };
 }

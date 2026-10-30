@@ -4,7 +4,8 @@ import { eventById } from "../game/events";
 import type { Mods } from "../game/mods";
 import { type Run, canClose, charmPrice, quotaFor, shopRerollPrice } from "../game/run";
 import { missionDef, missionProgress } from "../game/missions";
-import { COLS, LINES, ROWS, type Sym } from "../game/slot";
+import { CLUSTER_PAY } from "../game/board";
+import type { Sym } from "../game/slot";
 
 export type Tab = "play" | "shop" | "tree" | "book";
 
@@ -16,6 +17,8 @@ export interface UI {
   grid: Sym[][];
   winCells: Set<string>;
   slotNote: string;
+  /** the chain multiplier shown while a cascade plays */
+  chain: number;
   overChips: number;
   muted: boolean;
   /** relics picked for combining (at most two) */
@@ -36,6 +39,8 @@ const svg = (body: string): string => `<svg viewBox="0 0 48 48" width="1em" heig
 /** Symbols are drawn, not typed as emoji: not every system has an emoji font. */
 export const GLYPH: Record<Sym, string> = {
   cherry: svg('<path d="M18 30 C20 18 26 12 34 8 M30 32 C30 20 32 14 34 8" stroke="#2f7d32" stroke-width="3" fill="none"/><circle cx="16" cy="34" r="8" fill="#d3213f"/><circle cx="31" cy="35" r="8" fill="#e63950"/><circle cx="13" cy="31" r="2" fill="#fff" opacity=".6"/>'),
+  plum: svg('<circle cx="24" cy="27" r="15" fill="#7b2d8e" stroke="#4d1a5c" stroke-width="2"/><path d="M24 12 C24 8 27 5 31 5" stroke="#2f7d32" stroke-width="3" fill="none"/><ellipse cx="18" cy="22" rx="4" ry="2.5" fill="#fff" opacity=".35"/>'),
+  grape: svg('<circle cx="16" cy="20" r="7" fill="#6a3fc7"/><circle cx="32" cy="20" r="7" fill="#7a4fd8"/><circle cx="24" cy="30" r="7" fill="#6a3fc7"/><circle cx="24" cy="14" r="6" fill="#7a4fd8"/><circle cx="14" cy="18" r="2" fill="#fff" opacity=".4"/><path d="M24 8 C24 5 26 3 30 3" stroke="#2f7d32" stroke-width="3" fill="none"/>'),
   lemon: svg('<ellipse cx="24" cy="26" rx="18" ry="13" fill="#ffd84a" stroke="#c9a100" stroke-width="2"/><path d="M5 26 L1 24 M43 26 L47 24" stroke="#c9a100" stroke-width="3"/><ellipse cx="18" cy="21" rx="5" ry="2.5" fill="#fff" opacity=".5"/>'),
   bell: svg('<path d="M24 6 C14 6 12 16 12 24 C12 31 8 34 8 36 L40 36 C40 34 36 31 36 24 C36 16 34 6 24 6Z" fill="#f2b705" stroke="#a87400" stroke-width="2"/><circle cx="24" cy="40" r="4" fill="#a87400"/>'),
   bar: "BAR",
@@ -80,34 +85,33 @@ function betRow(act: string, bet: number, max: number, disabled: boolean): strin
 export function slotPanel(v: View): string {
   const { run, mods, ui } = v;
   const live = run !== null && run.phase === "play" && !ui.busy;
-  const lines = mods.slotLines;
-  const cost = ui.slotBet * lines;
+  const free = run !== null && run.freeSpins > 0;
+  const cost = free ? 0 : ui.slotBet;
+  const rows = ui.grid.length;
+  const cols = (ui.grid[0] as Sym[]).length;
   const cells: string[] = [];
-  for (let r = 0; r < ROWS; r++) {
-    for (let c = 0; c < COLS; c++) {
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
       const sym = (ui.grid[r] as Sym[])[c] as Sym;
       cells.push(`<div class="cell s-${sym}${ui.winCells.has(`${r},${c}`) ? " win" : ""}" data-col="${c}">${GLYPH[sym]}</div>`);
     }
   }
-  const canSpin = live && run !== null && run.turnsLeft > 0 && run.coins >= cost;
-  const why = !run || run.phase !== "play" ? "" : run.turnsLeft <= 0 ? "No turns left: close the round." : run.coins < cost ? "Not enough coins." : "";
+  const canSpin = live && run !== null && (free || (run.turnsLeft > 0 && run.coins >= cost));
+  const why = !run || run.phase !== "play" ? "" : !free && run.turnsLeft <= 0 ? "No turns left: close the round." : !free && run.coins < cost ? "Not enough coins." : "";
+  const chain = ui.chain > 1 ? ` · chain x${ui.chain}` : "";
+  const pays = (["cherry", "lemon", "plum", "grape", "bell", "bar", "seven"] as const).map((s) => `<li>${s === "bar" ? "BAR" : s === "seven" ? "7" : GLYPH[s]} ×${CLUSTER_PAY[s]}</li>`).join("");
   return `
     <section class="machine slot">
-      <h2>Reels</h2>
-      <div class="reels">${cells.join("")}</div>
-      <p class="note">${esc(ui.slotNote) || "The star is wild. Three coin symbols give a ticket."}</p>
+      <h2>Reels <small>${rows}×${cols}</small></h2>
+      <div class="reels" style="--cols:${cols};grid-template-columns:repeat(${cols},1fr)">${cells.join("")}</div>
+      <p class="note">${esc(ui.slotNote) || "Match 3 or more symbols that touch sideways. Winners vanish, new ones fall: every step of the chain pays more. The star is wild. Three coins give a free spin."}${chain}</p>
       ${betRow("slotbet", ui.slotBet, mods.slotMaxBet, !live)}
-      <button class="big" data-act="spin" ${canSpin ? "" : "disabled"}>PULL <small>${why || `${cost} coins · ${lines} line${lines > 1 ? "s" : ""} · 1 turn`}</small></button>
+      <button class="big" data-act="spin" ${canSpin ? "" : "disabled"}>${free ? "FREE SPIN" : "SPIN"} <small>${why || (free ? `${run?.freeSpins ?? 0} free spin${(run?.freeSpins ?? 0) > 1 ? "s" : ""} left` : `${cost} coins · 1 turn`)}</small></button>
       <details class="paytable"><summary>Pay table</summary>
-        <ul><li>${GLYPH.cherry}${GLYPH.cherry} (left) ×1</li><li>3× ${GLYPH.cherry} ×4</li><li>3× ${GLYPH.lemon} ×6</li><li>3× ${GLYPH.bell} ×10</li><li>3× BAR ×20</li><li>3× 7 ×60</li></ul>
+        <p class="hint">Pay for 3 touching, times the bet. Each extra symbol in the group adds the same again. A bigger board pays a little less per cluster.</p>
+        <ul>${pays}</ul>
       </details>
-      ${lineKey(lines)}
     </section>`;
-}
-
-function lineKey(lines: number): string {
-  const names = ["middle", "top", "bottom", "diagonal ↘", "diagonal ↗"];
-  return `<p class="hint">Paylines: ${names.slice(0, Math.min(lines, LINES.length)).join(", ")}</p>`;
 }
 
 export function roundPanel(v: View): string {
