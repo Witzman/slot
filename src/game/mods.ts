@@ -35,6 +35,10 @@ export interface Mods {
   startTickets: number;
   /** chance that a cleared round is followed by an event */
   eventChance: number;
+  /** lines (0..9, rows then columns) that pay nothing */
+  deadLines: number[];
+  /** columns may be held (a boss can forbid it) */
+  colHold: boolean;
 }
 
 export function baseMods(): Mods {
@@ -57,6 +61,8 @@ export function baseMods(): Mods {
     rerolls: 0,
     startTickets: 0,
     eventChance: EVENT_CHANCE,
+    deadLines: [],
+    colHold: true,
   };
 }
 

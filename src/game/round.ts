@@ -24,6 +24,8 @@ export interface ScoreMods {
   globalMul: number;
   /** each paying line beyond the third makes the round pay this much more */
   lineBonus: number;
+  /** lines (0..9) that pay nothing this round */
+  deadLines?: readonly number[];
 }
 
 export interface LineScore {
@@ -91,6 +93,7 @@ export function scoreBoard(board: readonly Card[], bet: number, upgrades: Readon
   const lines: LineScore[] = [];
   let sum = 0;
   for (let line = 0; line < LINES; line++) {
+    if (score.deadLines?.includes(line)) continue;
     const cards = lineCells(line).map((i) => board[i] as Card);
     const hand: HandCard[] = cards.map((c) => {
       const u = upgrades[c];

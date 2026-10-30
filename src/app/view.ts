@@ -1,13 +1,14 @@
 import { ACHIEVEMENTS, type Meta, type ModeId, relicSlots } from "../game/meta";
 import { CARD_KINDS, CARD_KIND_LABEL, CARD_KIND_TEXT, type CardKind, applyCardUpgrade, cardUpgradeCost } from "../game/cards-shop";
-import { BOSSES, CHARMS, CURSES, RELICS, RELIC_PERKS, TECH, UPGRADES, upgradeCost } from "../game/content";
+import { BOSSES, CHARMS, CURSES, RELICS, RELIC_PERKS, TECH, UPGRADES, VOUCHERS, upgradeCost } from "../game/content";
+import { CHALLENGE_CHIPS, SETUPS, setupUnlocked } from "../game/setups";
 import { eventById } from "../game/events";
 import type { Mods } from "../game/mods";
 import { type Run, canClose, charmPrice, quotaFor, shopRerollPrice } from "../game/run";
 import { missionDef, missionProgress } from "../game/missions";
 import { rankOf, suitOf } from "../game/cards";
 import { BASE_PAY, HAND_LABEL, HAND_ORDER } from "../game/hands";
-import { type CardUpgrade, type Deal, LINES, type RoundResult, SIZE, heldCells } from "../game/round";
+import { type CardUpgrade, type Deal, LINES, type RoundResult, SIZE, heldCells, lineCells } from "../game/round";
 import type { Session } from "../game/endless";
 import { VERSION } from "../version";
 import { endlessHud, endlessPanel, endlessShop } from "./endless-view";
@@ -33,6 +34,10 @@ export interface UI {
   craftNote: string;
   /** stake picked for the next run */
   stake: number;
+  /** start deck or challenge picked for the next run */
+  setup: string;
+  /** today, in days since 1970: the daily run is of this day */
+  today: number;
   /** the kind of card upgrade the card shop is selling */
   cardKind: CardKind;
 }
@@ -103,7 +108,7 @@ const RANK_LABEL: Record<number, string> = { 11: "J", 12: "Q", 13: "K", 14: "A" 
 const SUIT_GLYPH = ["♠", "♥", "♦", "♣"];
 
 /** One card, with its marks: held, new from the draw, and the upgrades it carries. */
-function cardHtml(t: Table, cell: number, held: boolean, fresh: boolean, clickable: boolean): string {
+function cardHtml(t: Table, cell: number, held: boolean, fresh: boolean, clickable: boolean, dead = false): string {
   const board = t.hand?.board;
   if (!board) return `<div class="pc back"></div>`;
   const card = board[cell] as number;
@@ -112,7 +117,7 @@ function cardHtml(t: Table, cell: number, held: boolean, fresh: boolean, clickab
   const suit = suitOf(card);
   const marks = [u?.joker ? "★" : "", u?.gold ? "$" : "", u?.rank ? `+${u.rank}` : "", u?.anySuit ? "◆" : ""].join("");
   const face = u?.joker ? "★" : `${RANK_LABEL[rank] ?? rank}`;
-  return `<button class="pc ${suit === 1 || suit === 2 ? "red" : ""}${held ? " held" : ""}${fresh ? " new" : ""}${u?.joker ? " joker" : ""}${u?.gold ? " gold" : ""}" data-act="holdcell" data-v="${cell}" ${clickable ? "" : "disabled"}><span>${face}</span><span>${u?.joker ? "" : SUIT_GLYPH[suit]}</span>${marks ? `<em>${marks}</em>` : ""}</button>`;
+  return `<button class="pc ${suit === 1 || suit === 2 ? "red" : ""}${dead ? " dead" : ""}${held ? " held" : ""}${fresh ? " new" : ""}${u?.joker ? " joker" : ""}${u?.gold ? " gold" : ""}" data-act="holdcell" data-v="${cell}" ${clickable ? "" : "disabled"}><span>${face}</span><span>${u?.joker ? "" : SUIT_GLYPH[suit]}</span>${marks ? `<em>${marks}</em>` : ""}</button>`;
 }
 
 export function slotPanel(v: View): string {
@@ -128,14 +133,16 @@ export function slotPanel(v: View): string {
     const l = lineOf(line);
     return l ? `<span class="badge" title="${HAND_LABEL[l.rank]}">${HAND_LABEL[l.rank]} <b>+${Math.round(l.pay)}</b></span>` : `<span class="badge none"></span>`;
   };
-  const rowBtn = (r: number): string => `<button class="line${ui.holdRows.has(r) ? " on" : ""}" data-act="holdrow" data-v="${r}" ${open ? "" : "disabled"} aria-label="Hold row ${r + 1}">${ui.holdRows.has(r) ? "HOLD" : "R" + (r + 1)}</button>`;
-  const colBtn = (c: number): string => `<button class="line${ui.holdCols.has(c) ? " on" : ""}" data-act="holdcol" data-v="${c}" ${open ? "" : "disabled"} aria-label="Hold column ${c + 1}">${ui.holdCols.has(c) ? "HOLD" : "C" + (c + 1)}</button>`;
+  const locked = v.mode === "climb" && v.run ? v.run.lockedLine : -1;
+  const deadCells = new Set(locked >= 0 ? lineCells(locked) : []);
+  const rowBtn = (r: number): string => `<button class="line${ui.holdRows.has(r) ? " on" : ""}${locked === r ? " locked" : ""}" data-act="holdrow" data-v="${r}" ${open ? "" : "disabled"} aria-label="Hold row ${r + 1}${locked === r ? " (locked: pays nothing)" : ""}">${ui.holdRows.has(r) ? "HOLD" : locked === r ? "LOCK" : "R" + (r + 1)}</button>`;
+  const colBtn = (c: number): string => `<button class="line${ui.holdCols.has(c) ? " on" : ""}${locked === SIZE + c ? " locked" : ""}" data-act="holdcol" data-v="${c}" ${open && mods.colHold ? "" : "disabled"} aria-label="Hold column ${c + 1}${locked === SIZE + c ? " (locked: pays nothing)" : ""}${mods.colHold ? "" : " (not allowed this round)"}">${ui.holdCols.has(c) ? "HOLD" : !mods.colHold ? "—" : locked === SIZE + c ? "LOCK" : "C" + (c + 1)}</button>`;
   const cells: string[] = ['<span></span>', ...Array.from({ length: SIZE }, (_, c) => colBtn(c)), '<span></span>'];
   for (let r = 0; r < SIZE; r++) {
     cells.push(rowBtn(r));
     for (let c = 0; c < SIZE; c++) {
       const i = r * SIZE + c;
-      cells.push(cardHtml(t, i, open && kept.has(i), result?.drawn[i] === true || (open && (ui.result?.drawn[i] ?? false)), open && mods.singleHold));
+      cells.push(cardHtml(t, i, open && kept.has(i), result?.drawn[i] === true || (open && (ui.result?.drawn[i] ?? false)), open && mods.singleHold, deadCells.has(i)));
     }
     cells.push(badge(r));
   }
@@ -271,6 +278,29 @@ export function bookPanel(v: View): string {
     </div></section>`;
 }
 
+/** The deck or challenge the next run starts with: locked ones say how they open. A challenge has its own seed and no stake. */
+function setupPicker(v: View): string {
+  const btn = (id: string): string => {
+    const s = SETUPS.find((x) => x.id === id);
+    if (!s) return "";
+    const open = setupUnlocked(v.meta, s.id);
+    const done = s.kind === "challenge" && v.meta.challenges.includes(s.id);
+    return `<button class="charm${v.ui.setup === s.id ? " picked" : ""}${done ? " uncommon" : ""}" data-act="setup" data-v="${s.id}" ${open ? "" : "disabled"}><strong>${esc(s.name)}</strong><span>${esc(open ? s.text : "Locked: " + s.lock)}</span>${done ? "<em>cleared</em>" : s.kind === "challenge" ? `<em>first clear +${CHALLENGE_CHIPS} chips</em>` : ""}</button>`;
+  };
+  const group = (kind: "deck" | "challenge"): string => SETUPS.filter((s) => s.kind === kind).map((s) => btn(s.id)).join("");
+  return `<h3>Start deck</h3><div class="charms setups">${group("deck")}</div><h3>Challenges</h3><div class="charms setups">${group("challenge")}</div>`;
+}
+
+const startLabel = (v: View): string => `Start ${SETUPS.find((s) => s.id === v.ui.setup)?.name ?? "run"}`;
+
+/** The daily run: the same board for everyone that day, the classic deck, no stake. */
+function dailyButton(v: View): string {
+  const d = v.meta.daily;
+  const today = d.day === v.ui.today;
+  const note = today ? `today ${d.best} quotas${d.prev > 0 ? ` · last time ${d.prev}` : ""}` : d.best > 0 ? `last time ${d.best}` : "not played yet";
+  return `<div class="row"><button data-act="daily">Daily run <small>${note}</small></button></div>`;
+}
+
 function stakePicker(v: View): string {
   if (v.meta.maxStake < 1) return "";
   const s = v.ui.stake;
@@ -293,7 +323,7 @@ export function overlay(v: View): string {
       <h1>CARD<b>·</b>SLOT</h1>
       <p>Deal a 5×5 board of cards: every row and column is a poker hand and the hands add up. Hold what you like, draw, pay the quota when your turns run out, pick a charm, go deeper. Lose the run, earn chips, grow the tech tree.</p>
       <p class="hint">Each round (deal, hold, draw) is one turn.</p>
-      ${stakePicker(v)}<button class="big" data-act="newrun">Start run</button></div></div>`;
+      ${setupPicker(v)}${stakePicker(v)}<button class="big" data-act="newrun">${startLabel(v)}</button>${dailyButton(v)}</div></div>`;
   }
   if (run.phase === "event") {
     const ev = eventById(run.event);
@@ -309,11 +339,14 @@ export function overlay(v: View): string {
       const price = charmPrice(c.id);
       return `<button class="charm ${c.rarity}" data-act="buycharm" data-v="${c.id}" ${run.tickets >= price ? "" : "disabled"}><strong>${esc(c.name)}</strong><span>${esc(c.text)}</span><em>${c.rarity} · ${price} tickets</em></button>`;
     }).join("");
+    const vo = VOUCHERS.find((x) => x.id === run.voucher);
+    const voucher = vo ? `<button class="charm voucher" data-act="buyvoucher" data-v="${vo.id}" ${run.tickets >= vo.price ? "" : "disabled"}><strong>${esc(vo.name)}</strong><span>${esc(vo.text)}</span><em>voucher, permanent · tier ${vo.tier} · ${vo.price} tickets</em></button>` : "";
     const rr = shopRerollPrice(run);
-    return `<div class="modal"><div class="card-box wide"><h2>Round ${run.round - 1} cleared</h2><p>Quota paid. The phone rings: take one charm for free.</p><div class="charms">${cards}</div>
+    return `<div class="modal"><div class="card-box wide"><h2>Round ${run.round - 1} cleared</h2><p>Quota paid. The phone rings: take one charm for free, or skip it for 2 tickets.</p><div class="charms">${cards}</div>
+      <button data-act="skip">Skip the call (+2 tickets)</button>
       ${run.rerollsLeft > 0 ? `<button data-act="reroll">Re-draw the call (${run.rerollsLeft} left)</button>` : ""}
       <h3>Shop <span class="teal">${run.tickets} tickets</span></h3>
-      <div class="charms">${shop || '<p class="hint">Sold out.</p>'}</div>
+      <div class="charms">${shop || '<p class="hint">Sold out.</p>'}${voucher}</div>
       <button data-act="rerollshop" ${run.tickets >= rr ? "" : "disabled"}>New stock (${rr} ticket${rr > 1 ? "s" : ""})</button>
       <p class="hint">Coins: ${run.coins} · next quota ${quotaFor(run.round, v.mods)} · tickets come from rounds, missions and coin scatters</p></div></div>`;
   }
@@ -321,7 +354,7 @@ export function overlay(v: View): string {
     const why = run.overReason === "bust" ? "You ran out of coins." : `You missed the quota of ${run.quota} with ${run.coins} coins.`;
     return `<div class="modal"><div class="card-box"><h2>Run over</h2><p>${why}</p>
       <p>Rounds cleared: <strong>${run.completed}</strong> · chips earned: <strong class="teal">+${ui.overChips}</strong> (total ${meta[v.mode].chips})</p>
-      ${stakePicker(v)}<div class="row"><button data-act="tab" data-v="tree">Tech tree</button><button class="big" data-act="newrun">New run</button></div></div></div>`;
+      ${setupPicker(v)}${stakePicker(v)}<div class="row"><button data-act="tab" data-v="tree">Tech tree</button><button class="big" data-act="newrun">${startLabel(v)}</button></div>${dailyButton(v)}</div></div>`;
   }
   return "";
 }

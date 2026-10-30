@@ -619,7 +619,7 @@ describe("bosses", () => {
     expect(modsFor(meta, "climb", [], {}, "landlord").turns).toBe(plain.turns - 3);
     expect(modsFor(meta, "climb", [], {}, "edge").slotWinMul).toBeCloseTo(0.7);
     expect(modsFor(meta, "climb", [], {}, "collector").quotaMul).toBeCloseTo(1.35);
-    for (const b of BOSSES) expect(modsFor(meta, "climb", [], {}, b.id).quotaMul, b.id).toBeGreaterThanOrEqual(1.2);
+    for (const b of BOSSES) expect(modsFor(meta, "climb", [], {}, b.id).quotaMul, b.id).toBeGreaterThanOrEqual(1.15);
     const run = toRound(3);
     run.coins = 500;
     run.turnsLeft = 0;

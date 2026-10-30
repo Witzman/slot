@@ -185,6 +185,32 @@ export const BOSSES: readonly Boss[] = [
   { id: "landlord", name: "The Landlord", text: "3 turns fewer. Quota x1.2.", effect: (m) => void ((m.turns = Math.max(4, m.turns - 3)), (m.quotaMul *= 1.2)) },
   { id: "edge", name: "House Edge", text: "Every round pays 70%. Quota x1.2.", effect: (m) => void ((m.slotWinMul *= 0.7), (m.quotaMul *= 1.2)) },
   { id: "lowpay", name: "Low Pay", text: "Pairs and two pair pay nothing. Quota x1.2.", effect: (m) => void ((m.handMul.jacks = 0), (m.handMul.twoPair = 0), (m.quotaMul *= 1.2)) },
+  { id: "lockout", name: "The Lockout", text: "One line, marked on the board, pays nothing. Quota x1.15.", effect: (m) => void (m.quotaMul *= 1.15) },
+  { id: "shackles", name: "The Shackles", text: "Columns cannot be held, rows can. Quota x1.15.", effect: (m) => void ((m.colHold = false), (m.quotaMul *= 1.15)) },
+];
+
+export interface Voucher {
+  id: string;
+  name: string;
+  text: string;
+  /** a second tier is only on sale once its first is owned */
+  tier: 1 | 2;
+  requires?: string;
+  /** tickets */
+  price: number;
+  effect: Effect;
+}
+
+/** One voucher is on sale after each cleared round: a permanent upgrade for the run, in tiered pairs. Owned ones are kept in `run.upgrades` at level 1. */
+export const VOUCHERS: readonly Voucher[] = [
+  { id: "v_hold1", name: "Steady Hands", text: "Hold one more line.", tier: 1, price: 6, effect: (m) => void (m.holdMax += 1) },
+  { id: "v_hold2", name: "Iron Grip", text: "Hold one more line again.", tier: 2, requires: "v_hold1", price: 9, effect: (m) => void (m.holdMax += 1) },
+  { id: "v_pay1", name: "Sharp Eye", text: "Every round pays 8% more.", tier: 1, price: 6, effect: (m) => void (m.slotWinMul *= 1.08) },
+  { id: "v_pay2", name: "Hawk Eye", text: "Every round pays 8% more again.", tier: 2, requires: "v_pay1", price: 9, effect: (m) => void (m.slotWinMul *= 1.08) },
+  { id: "v_turn1", name: "Overtime", text: "+1 turn every round.", tier: 1, price: 6, effect: (m) => void (m.turns += 1) },
+  { id: "v_turn2", name: "Night Shift", text: "+1 turn every round again.", tier: 2, requires: "v_turn1", price: 9, effect: (m) => void (m.turns += 1) },
+  { id: "v_quota1", name: "Haggler", text: "Quotas are 6% lower.", tier: 1, price: 6, effect: (m) => void (m.quotaMul *= 0.94) },
+  { id: "v_quota2", name: "Silver Tongue", text: "Quotas are 6% lower again.", tier: 2, requires: "v_quota1", price: 9, effect: (m) => void (m.quotaMul *= 0.94) },
 ];
 
 /** Each stake adds this much quota; from STAKE_TURNS on one turn less. */
