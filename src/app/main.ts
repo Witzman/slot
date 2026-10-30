@@ -3,7 +3,7 @@ import { type Meta, buyTech, combine, toggleEquip, checkAchievements, fileRelic,
 import { RELICS, CHARMS } from "../game/content";
 import type { SpinResult } from "../game/board";
 import { type Run, type Refusal, buyCharm, buyUpgrade, chooseEvent, closeRound, drainEvents, pickCharm, rerollDraft, rerollShop, spinSlot, startRun } from "../game/run";
-import { type Sym, PAY_SYMS } from "../game/slot";
+import { type Sym, START_SYMS } from "../game/slot";
 import { localStore } from "../storage";
 import { loadMeta, loadRun, save } from "./save";
 import { isMuted, setMuted, sfx, unlock } from "./sfx";
@@ -24,15 +24,8 @@ const REFUSAL: Record<Refusal, string> = {
 };
 
 /** A resting board of the given size, shown before the first spin and after the board grew. */
-const restGrid = (rows: number, cols: number): Sym[][] => Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => PAY_SYMS[(r * 2 + c * 3) % PAY_SYMS.length] as Sym));
+const restGrid = (rows: number, cols: number): Sym[][] => Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => START_SYMS[(r * 2 + c * 3) % START_SYMS.length] as Sym));
 
-/** `?board=6x6` plays on a board of that size (a try-out switch; the tech tree buys the real thing). */
-function boardOverride(): { rows: number; cols: number } | null {
-  const m = /^(\d)x(\d)$/.exec(new URLSearchParams(location.search).get("board") ?? "");
-  const rows = Number(m?.[1]);
-  const cols = Number(m?.[2]);
-  return m && rows >= 3 && rows <= 6 && cols >= 3 && cols <= 6 ? { rows, cols } : null;
-}
 const wait = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
 
 async function boot(): Promise<void> {
@@ -40,12 +33,7 @@ async function boot(): Promise<void> {
   let run: Run | null = await loadRun(store);
   const ui: UI = { tab: "play", slotBet: 1, busy: false, grid: restGrid(3, 3), winCells: new Set(), slotNote: "", chain: 1, overChips: 0, muted: false, picked: [], craftNote: "", stake: 0 };
   const mk = (charms: string[]) => modsFor(meta, charms, run?.upgrades ?? {}, run?.boss ?? null, run?.stake ?? 0);
-  const override = boardOverride();
-  const mods = () => {
-    const m = mk(run?.charms ?? []);
-    if (override) Object.assign(m, override);
-    return m;
-  };
+  const mods = () => mk(run?.charms ?? []);
   const view = (): View => ({ run, meta, mods: mods(), ui });
   let lastPhase = run?.phase ?? "over";
 
@@ -148,7 +136,7 @@ async function boot(): Promise<void> {
     for (;;) {
       const el = performance.now() - t0;
       for (let c = 0; c < cols; c++) {
-        for (let r = 0; r < rows; r++) (ui.grid[r] as Sym[])[c] = el < (stops[c] ?? 0) ? (PAY_SYMS[Math.floor(Math.random() * PAY_SYMS.length)] as Sym) : ((res.start[r] as Sym[])[c] as Sym);
+        for (let r = 0; r < rows; r++) (ui.grid[r] as Sym[])[c] = el < (stops[c] ?? 0) ? (START_SYMS[Math.floor(Math.random() * START_SYMS.length)] as Sym) : ((res.start[r] as Sym[])[c] as Sym);
         if (el >= (stops[c] ?? 0) && el < (stops[c] ?? 0) + 80) sfx.reel(c);
       }
       paint();

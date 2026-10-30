@@ -41,6 +41,7 @@ export const GLYPH: Record<Sym, string> = {
   cherry: svg('<path d="M18 30 C20 18 26 12 34 8 M30 32 C30 20 32 14 34 8" stroke="#2f7d32" stroke-width="3" fill="none"/><circle cx="16" cy="34" r="8" fill="#d3213f"/><circle cx="31" cy="35" r="8" fill="#e63950"/><circle cx="13" cy="31" r="2" fill="#fff" opacity=".6"/>'),
   plum: svg('<circle cx="24" cy="27" r="15" fill="#7b2d8e" stroke="#4d1a5c" stroke-width="2"/><path d="M24 12 C24 8 27 5 31 5" stroke="#2f7d32" stroke-width="3" fill="none"/><ellipse cx="18" cy="22" rx="4" ry="2.5" fill="#fff" opacity=".35"/>'),
   grape: svg('<circle cx="16" cy="20" r="7" fill="#6a3fc7"/><circle cx="32" cy="20" r="7" fill="#7a4fd8"/><circle cx="24" cy="30" r="7" fill="#6a3fc7"/><circle cx="24" cy="14" r="6" fill="#7a4fd8"/><circle cx="14" cy="18" r="2" fill="#fff" opacity=".4"/><path d="M24 8 C24 5 26 3 30 3" stroke="#2f7d32" stroke-width="3" fill="none"/>'),
+  diamond: svg('<polygon points="24,5 40,17 24,43 8,17" fill="#4fd8f0" stroke="#1b8fa6" stroke-width="2"/><polygon points="8,17 40,17 24,5" fill="#8ef0ff"/><polyline points="24,5 17,17 24,43 31,17 24,5" fill="none" stroke="#1b8fa6" stroke-width="1.5"/>'),
   lemon: svg('<ellipse cx="24" cy="26" rx="18" ry="13" fill="#ffd84a" stroke="#c9a100" stroke-width="2"/><path d="M5 26 L1 24 M43 26 L47 24" stroke="#c9a100" stroke-width="3"/><ellipse cx="18" cy="21" rx="5" ry="2.5" fill="#fff" opacity=".5"/>'),
   bell: svg('<path d="M24 6 C14 6 12 16 12 24 C12 31 8 34 8 36 L40 36 C40 34 36 31 36 24 C36 16 34 6 24 6Z" fill="#f2b705" stroke="#a87400" stroke-width="2"/><circle cx="24" cy="40" r="4" fill="#a87400"/>'),
   bar: "BAR",
@@ -49,7 +50,7 @@ export const GLYPH: Record<Sym, string> = {
   coin: svg('<circle cx="24" cy="24" r="19" fill="#ffd84a" stroke="#a87400" stroke-width="3"/><circle cx="24" cy="24" r="12" fill="none" stroke="#b98500" stroke-width="2"/><text x="24" y="30" font-size="16" font-weight="900" text-anchor="middle" fill="#a87400">$</text>'),
 };
 
-const BRANCH_NAME = { run: "Run", slot: "Slot" } as const;
+const BRANCH_NAME = { board: "Board", symbols: "Symbols", combos: "Combos", economy: "Economy" } as const;
 
 const esc = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] as string);
 
@@ -99,7 +100,7 @@ export function slotPanel(v: View): string {
   const canSpin = live && run !== null && (free || (run.turnsLeft > 0 && run.coins >= cost));
   const why = !run || run.phase !== "play" ? "" : !free && run.turnsLeft <= 0 ? "No turns left: close the round." : !free && run.coins < cost ? "Not enough coins." : "";
   const chain = ui.chain > 1 ? ` · chain x${ui.chain}` : "";
-  const pays = (["cherry", "lemon", "plum", "grape", "bell", "bar", "seven"] as const).map((s) => `<li>${s === "bar" ? "BAR" : s === "seven" ? "7" : GLYPH[s]} ×${CLUSTER_PAY[s]}</li>`).join("");
+  const pays = (["cherry", "lemon", "plum", "grape", "bell", "bar", "seven", "diamond"] as const).filter((s) => s !== "diamond" || mods.weights.diamond > 0).map((s) => `<li>${s === "bar" ? "BAR" : s === "seven" ? "7" : GLYPH[s]} ×${CLUSTER_PAY[s]}</li>`).join("");
   return `
     <section class="machine slot">
       <h2>Reels <small>${rows}×${cols}</small></h2>

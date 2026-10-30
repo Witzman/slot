@@ -6,6 +6,7 @@ import { BASE_WEIGHTS, SYMS, type Sym } from "../../src/game/slot";
 const params = (over: Partial<SpinParams> = {}): SpinParams => ({
   weights: { ...BASE_WEIGHTS },
   symPay: Object.fromEntries(SYMS.map((s) => [s, 1])) as Record<Sym, number>,
+  chainStart: 1,
   chainStep: 0.5,
   chainCap: 5,
   globalMul: 1,

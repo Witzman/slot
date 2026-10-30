@@ -5,7 +5,7 @@ import { makeRng } from "../../src/game/rng";
 
 const n = Number(process.argv[2] ?? 50000);
 const m = baseMods();
-const p: SpinParams = { weights: m.weights, symPay: m.symPay, chainStep: m.chainStep, chainCap: m.chainCap, globalMul: m.slotWinMul };
+const p: SpinParams = { weights: m.weights, symPay: m.symPay, chainStart: m.chainStart, chainStep: m.chainStep, chainCap: m.chainCap, globalMul: m.slotWinMul };
 for (const [rows, cols] of [[3, 3], [4, 4], [5, 5], [6, 6]] as const) {
   const rng = makeRng(1234);
   let paid = 0;

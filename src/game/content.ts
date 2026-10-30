@@ -3,7 +3,7 @@ import type { Sym } from "./slot";
 
 export interface TechNode {
   id: string;
-  branch: "run" | "slot";
+  branch: "board" | "symbols" | "combos" | "economy";
   name: string;
   text: string;
   cost: number;
@@ -11,25 +11,44 @@ export interface TechNode {
   effect: Effect;
 }
 
-/** The permanent tree, bought with chips between runs. */
+/** The permanent tree, bought with chips between runs. Four branches; each node changes how a spin plays or what a run starts with. */
 export const TECH: readonly TechNode[] = [
-  { id: "purse1", branch: "run", name: "Pocket Change", text: "Start each run with +10 coins.", cost: 3, requires: [], effect: (m) => void (m.startCoins += 10) },
-  { id: "purse2", branch: "run", name: "Lucky Wallet", text: "Start each run with +20 more coins.", cost: 8, requires: ["purse1"], effect: (m) => void (m.startCoins += 20) },
-  { id: "time1", branch: "run", name: "Overtime", text: "+1 turn every round.", cost: 6, requires: ["purse1"], effect: (m) => void (m.turns += 1) },
-  { id: "time2", branch: "run", name: "Night Shift", text: "+2 more turns every round.", cost: 14, requires: ["time1"], effect: (m) => void (m.turns += 2) },
-  { id: "haggle", branch: "run", name: "Haggler", text: "Quotas are 10% lower.", cost: 12, requires: ["purse2"], effect: (m) => void (m.quotaMul *= 0.9) },
-  { id: "reroll", branch: "run", name: "Second Look", text: "Re-draw the charm choice once per round.", cost: 9, requires: ["time1"], effect: (m) => void (m.rerolls += 1) },
+  // board: the grid grows one row or column at a time
+  { id: "rows4", branch: "board", name: "Fourth Row", text: "The board gets a fourth row.", cost: 4, requires: [], effect: (m) => void (m.rows = Math.max(m.rows, 4)) },
+  { id: "cols4", branch: "board", name: "Fourth Column", text: "The board gets a fourth column.", cost: 8, requires: ["rows4"], effect: (m) => void (m.cols = Math.max(m.cols, 4)) },
+  { id: "rows5", branch: "board", name: "Fifth Row", text: "The board gets a fifth row.", cost: 14, requires: ["cols4"], effect: (m) => void (m.rows = Math.max(m.rows, 5)) },
+  { id: "cols5", branch: "board", name: "Fifth Column", text: "The board gets a fifth column.", cost: 20, requires: ["rows5"], effect: (m) => void (m.cols = Math.max(m.cols, 5)) },
+  { id: "rows6", branch: "board", name: "Sixth Row", text: "The board gets a sixth row.", cost: 28, requires: ["cols5"], effect: (m) => void (m.rows = Math.max(m.rows, 6)) },
+  { id: "cols6", branch: "board", name: "Sixth Column", text: "The board gets a sixth column.", cost: 36, requires: ["rows6"], effect: (m) => void (m.cols = Math.max(m.cols, 6)) },
+  { id: "slotbet", branch: "board", name: "High Roller Reels", text: "Slot max bet 5.", cost: 7, requires: ["rows4"], effect: (m) => void (m.slotMaxBet = 5) },
 
-  { id: "case1", branch: "run", name: "Display Case", text: "Equip a third relic.", cost: 6, requires: ["purse1"], effect: () => {} },
-  { id: "case2", branch: "run", name: "Trophy Room", text: "Equip a fourth relic.", cost: 14, requires: ["case1"], effect: () => {} },
-  { id: "rows4", branch: "slot", name: "Fourth Row", text: "The board gets a fourth row.", cost: 4, requires: [], effect: (m) => void (m.rows = Math.max(m.rows, 4)) },
-  { id: "cols4", branch: "slot", name: "Fourth Column", text: "The board gets a fourth column.", cost: 10, requires: ["rows4"], effect: (m) => void (m.cols = Math.max(m.cols, 4)) },
-  { id: "slotbet", branch: "slot", name: "High Roller Reels", text: "Slot max bet 5.", cost: 7, requires: ["rows4"], effect: (m) => void (m.slotMaxBet = 5) },
-  { id: "wild2", branch: "slot", name: "Wilder Wilds", text: "More wild stars on the reels.", cost: 9, requires: ["rows4"], effect: (m) => void (m.weights.wild += 1) },
-  { id: "scatter2", branch: "slot", name: "Coin Magnet Reels", text: "More coin scatters on the board.", cost: 8, requires: ["rows4"], effect: (m) => void (m.weights.coin += 1) },
-  { id: "slotmul", branch: "slot", name: "Polished Chrome", text: "Slot wins pay 15% more.", cost: 16, requires: ["cols4"], effect: (m) => void (m.slotWinMul *= 1.15) },
+  // symbols: what falls onto the board and what it pays
+  { id: "wild1", branch: "symbols", name: "Wild Stars", text: "Wild stars join the board and complete any group.", cost: 6, requires: [], effect: (m) => void (m.weights.wild += 1) },
+  { id: "wild2", branch: "symbols", name: "Wilder Wilds", text: "More wild stars on the board.", cost: 12, requires: ["wild1"], effect: (m) => void (m.weights.wild += 1) },
+  { id: "scatter2", branch: "symbols", name: "Coin Magnet", text: "More coin scatters on the board: more free spins.", cost: 8, requires: [], effect: (m) => void (m.weights.coin += 1) },
+  { id: "sevens", branch: "symbols", name: "Lucky Sevens", text: "More sevens on the board.", cost: 10, requires: ["wild1"], effect: (m) => void (m.weights.seven += 1) },
+  { id: "diamond", branch: "symbols", name: "Diamond Mine", text: "Diamonds appear on the board: the richest group of all.", cost: 14, requires: ["wild1"], effect: (m) => void (m.weights.diamond += 1) },
+  { id: "highpay", branch: "symbols", name: "Gilded Bars", text: "BAR and seven groups pay 50% more.", cost: 16, requires: ["sevens"], effect: (m) => void ((m.symPay.bar *= 1.5), (m.symPay.seven *= 1.5)) },
 
+  // combos: how a cascade chains
+  { id: "chain1", branch: "combos", name: "Sticky Chain", text: "Each cascade step adds 0.25 more to the chain multiplier.", cost: 8, requires: [], effect: (m) => void (m.chainStep += 0.25) },
+  { id: "chain2", branch: "combos", name: "Hot Chain", text: "Another 0.25 per cascade step.", cost: 16, requires: ["chain1"], effect: (m) => void (m.chainStep += 0.25) },
+  { id: "cap1", branch: "combos", name: "Higher Ceiling", text: "The chain multiplier can reach 2 more.", cost: 12, requires: ["chain1"], effect: (m) => void (m.chainCap += 2) },
+  { id: "opener", branch: "combos", name: "Strong Opener", text: "The first step of every chain already pays 0.5 more.", cost: 14, requires: ["chain1"], effect: (m) => void (m.chainStart += 0.5) },
+  { id: "slotmul", branch: "combos", name: "Polished Chrome", text: "Slot wins pay 15% more.", cost: 18, requires: ["cap1"], effect: (m) => void (m.slotWinMul *= 1.15) },
 
+  // economy: what a run starts with, and how it is paced
+  { id: "purse1", branch: "economy", name: "Pocket Change", text: "Start each run with +10 coins.", cost: 3, requires: [], effect: (m) => void (m.startCoins += 10) },
+  { id: "purse2", branch: "economy", name: "Lucky Wallet", text: "Start each run with +20 more coins.", cost: 8, requires: ["purse1"], effect: (m) => void (m.startCoins += 20) },
+  { id: "time1", branch: "economy", name: "Overtime", text: "+1 turn every round.", cost: 6, requires: ["purse1"], effect: (m) => void (m.turns += 1) },
+  { id: "time2", branch: "economy", name: "Night Shift", text: "+2 more turns every round.", cost: 14, requires: ["time1"], effect: (m) => void (m.turns += 2) },
+  { id: "haggle", branch: "economy", name: "Haggler", text: "Quotas are 10% lower.", cost: 12, requires: ["purse2"], effect: (m) => void (m.quotaMul *= 0.9) },
+  { id: "reroll", branch: "economy", name: "Second Look", text: "Re-draw the charm choice once per round.", cost: 9, requires: ["time1"], effect: (m) => void (m.rerolls += 1) },
+  { id: "interest1", branch: "economy", name: "Savings Account", text: "Keep 5% of your coins as interest each round.", cost: 10, requires: ["purse2"], effect: (m) => void (m.interest += 0.05) },
+  { id: "auto1", branch: "economy", name: "Auto-Spin", text: "Endless mode: the machine spins by itself, one spin every 2.5 seconds.", cost: 10, requires: ["purse1"], effect: (m) => void (m.autoRate = Math.max(m.autoRate, 0.4)) },
+  { id: "auto2", branch: "economy", name: "Turbo Spin", text: "Endless mode: one automatic spin per second.", cost: 20, requires: ["auto1"], effect: (m) => void (m.autoRate = Math.max(m.autoRate, 1)) },
+  { id: "case1", branch: "economy", name: "Display Case", text: "Equip a third relic.", cost: 6, requires: ["purse1"], effect: () => {} },
+  { id: "case2", branch: "economy", name: "Trophy Room", text: "Equip a fourth relic.", cost: 14, requires: ["case1"], effect: () => {} },
 ];
 
 export type Rarity = "common" | "uncommon" | "rare";
@@ -64,6 +83,9 @@ export const CHARMS: readonly Charm[] = [
   ch("orchard", "Cherry Orchard", "common", "More cherries on the reels.", (m) => void (m.weights.cherry += 3)),
   ch("belltower", "Bell Tower", "uncommon", "More bells on the reels.", (m) => void (m.weights.bell += 2)),
   ch("highroll", "High Roller", "uncommon", "Slot max bet +2.", (m) => void (m.slotMaxBet += 2)),
+  ch("chainlink", "Chain Link", "uncommon", "Each cascade step adds 0.2 more to the chain multiplier.", (m) => void (m.chainStep += 0.2)),
+  ch("ceiling", "Glass Ceiling", "rare", "The chain multiplier can reach 3 more.", (m) => void (m.chainCap += 3)),
+  ch("opening", "Opening Move", "common", "The first step of every chain pays 0.3 more.", (m) => void (m.chainStart += 0.3)),
   // economy
   ch("extra", "Borrowed Time", "uncommon", "+2 turns every round.", (m) => void (m.turns += 2)),
   ch("bank", "Piggy Bank", "uncommon", "Keep 10% of your coins as interest each round (up to 15).", (m) => void (m.interest += 0.1)),
@@ -122,6 +144,8 @@ export interface Upgrade {
 export const UPGRADES: readonly Upgrade[] = [
   { id: "reels", name: "Reel Tuning", text: "Slot wins pay +10% per level.", base: 8, max: 5, effect: (m, l) => void (m.slotWinMul *= 1 + 0.1 * l) },
   { id: "wilds", name: "Wild Reels", text: "+1 wild star on the reels per level.", base: 10, max: 3, effect: (m, l) => void (m.weights.wild += l) },
+  { id: "chainup", name: "Chain Booster", text: "+0.1 chain multiplier per cascade step, per level.", base: 12, max: 4, effect: (m, l) => void (m.chainStep += 0.1 * l) },
+  { id: "lure", name: "Scatter Lure", text: "+1 coin scatter on the board per level.", base: 12, max: 3, effect: (m, l) => void (m.weights.coin += l) },
   { id: "hours", name: "Longer Shifts", text: "+1 turn per round per level, from the next round.", base: 15, max: 3, effect: (m, l) => void (m.turns += l) },
   { id: "savings", name: "Savings Account", text: "+5% interest per level.", base: 10, max: 3, effect: (m, l) => void (m.interest += 0.05 * l) },
 ];

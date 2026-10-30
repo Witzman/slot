@@ -11,6 +11,10 @@ export interface Mods {
   /** the chain multiplier grows by this much per cascade step, up to chainCap */
   chainStep: number;
   chainCap: number;
+  /** the chain multiplier of the first cascade step */
+  chainStart: number;
+  /** Endless mode: automatic spins per second (0: none) */
+  autoRate: number;
   slotMaxBet: number;
   slotWinMul: number;
   weights: Record<Sym, number>;
@@ -35,6 +39,8 @@ export function baseMods(): Mods {
     cols: 3,
     chainStep: 0.25,
     chainCap: 5,
+    chainStart: 1,
+    autoRate: 0,
     slotMaxBet: 3,
     slotWinMul: 1,
     weights: { ...BASE_WEIGHTS },

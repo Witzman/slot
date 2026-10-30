@@ -33,7 +33,8 @@ export interface SpinParams {
   weights: Record<Sym, number>;
   /** multiplies the pay of a symbol */
   symPay: Record<Sym, number>;
-  /** the chain multiplier of step k (from 0) is 1 + chainStep * k ... */
+  /** the chain multiplier of step k (from 0) is chainStart + chainStep * k ... */
+  chainStart: number;
   chainStep: number;
   /** ... but never more than this */
   chainCap: number;
@@ -44,7 +45,7 @@ export interface SpinParams {
 /** A cascade ends after this many steps even when the board still pays (runaway guard). */
 export const MAX_CASCADE = 12;
 /** Pay of a cluster of three, times the bet; a cluster of n pays (n - 2) times that. Starting values for the balance pass. */
-export const CLUSTER_PAY: Record<PaySym, number> = { cherry: 1, lemon: 1, plum: 1, grape: 2, bell: 2, bar: 3, seven: 8 };
+export const CLUSTER_PAY: Record<PaySym, number> = { cherry: 1, lemon: 1, plum: 1, grape: 2, bell: 2, bar: 3, seven: 8, diamond: 20 };
 /** A bigger board has more clusters: its pay is scaled by (9 / cells) to this power, so growth is power but not a flood of coins. */
 export const AREA_EXP = 0.5;
 
@@ -121,7 +122,7 @@ export function spinBoard(rng: Rng, size: BoardSize, bet: number, p: SpinParams)
   while (steps.length < MAX_CASCADE) {
     const clusters = findClusters(grid);
     if (clusters.length === 0) break;
-    const multiplier = Math.min(p.chainCap, 1 + p.chainStep * steps.length);
+    const multiplier = Math.min(p.chainCap, p.chainStart + p.chainStep * steps.length);
     let pay = 0;
     for (const cl of clusters) pay += clusterPay(cl.sym, cl.cells.length) * bet * p.symPay[cl.sym] * multiplier * area;
     const gone = new Set(clusters.flatMap((cl) => cl.cells.map(([r, c]) => `${r},${c}`)));

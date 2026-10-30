@@ -283,7 +283,7 @@ export function spinSlot(run: Run, m: Mods, bet: number): Refusal | SpinResult {
     run.coins -= bet;
     run.turnsLeft--;
   }
-  const res = spinBoard(run.rng, { rows: m.rows, cols: m.cols }, bet, { weights: m.weights, symPay: m.symPay, chainStep: m.chainStep, chainCap: m.chainCap, globalMul: m.slotWinMul });
+  const res = spinBoard(run.rng, { rows: m.rows, cols: m.cols }, bet, { weights: m.weights, symPay: m.symPay, chainStart: m.chainStart, chainStep: m.chainStep, chainCap: m.chainCap, globalMul: m.slotWinMul });
   gain(run, res.payout);
   run.freeSpins += res.freeSpins;
   const s = run.stats;

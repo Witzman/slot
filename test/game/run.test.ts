@@ -507,7 +507,7 @@ describe("symbol charms", () => {
     const only = (sym: string) => Object.fromEntries(SYMS.map((s) => [s, s === sym ? 1 : 0])) as Record<(typeof SYMS)[number], number>;
     const pay = (sym: string, symPay: Partial<Record<string, number>>): number => {
       const sp = { ...baseMods().symPay, ...symPay } as Record<(typeof SYMS)[number], number>;
-      return spinBoard(makeRng(1), { rows: 3, cols: 3 }, 1, { weights: only(sym), symPay: sp, chainStep: 0, chainCap: 1, globalMul: 1 }).steps[0]?.pay ?? 0;
+      return spinBoard(makeRng(1), { rows: 3, cols: 3 }, 1, { weights: only(sym), symPay: sp, chainStart: 1, chainStep: 0, chainCap: 1, globalMul: 1 }).steps[0]?.pay ?? 0;
     };
     const base = pay("cherry", {});
     expect(base).toBeGreaterThan(0);
@@ -521,7 +521,7 @@ describe("symbol charms", () => {
     const rng = makeRng(321);
     let paid = 0;
     const n = 20000;
-    for (let i = 0; i < n; i++) paid += spinBoard(rng, { rows: m.rows, cols: m.cols }, 1, { weights: m.weights, symPay: m.symPay, chainStep: m.chainStep, chainCap: m.chainCap, globalMul: m.slotWinMul }).payout;
+    for (let i = 0; i < n; i++) paid += spinBoard(rng, { rows: m.rows, cols: m.cols }, 1, { weights: m.weights, symPay: m.symPay, chainStart: m.chainStart, chainStep: m.chainStep, chainCap: m.chainCap, globalMul: m.slotWinMul }).payout;
     expect(paid / n).toBeGreaterThan(0.9);
     expect(paid / n).toBeLessThan(3);
   });
