@@ -44,6 +44,10 @@ export interface ScoreMods {
   lineBonus: number;
   /** lines (0..9) that pay nothing this round */
   deadLines?: readonly number[];
+  /** cards of these ranks (by face) count as jokers */
+  wildRanks?: readonly number[];
+  /** bets paid for each pair of neighbouring cards of one rank */
+  adjacency?: number;
 }
 
 export interface LineScore {
@@ -72,6 +76,8 @@ export interface RoundResult {
   drawn: boolean[];
   /** coins the coin seals of the held cards paid (already in the payout) */
   sealCoins: number;
+  /** pairs of neighbouring cards of one rank (they pay when the mods give a sum for them) */
+  adjacent: number;
   /** glass cards that shattered after the round (set by the run or the session) */
   shattered?: number[];
 }
@@ -111,7 +117,24 @@ const inRange = (xs: readonly number[], n: number): boolean => xs.every((x) => N
 /** The five cells of a line, in order. */
 export const lineCells = (line: number): number[] => Array.from({ length: SIZE }, (_, i) => (line < SIZE ? line * SIZE + i : i * SIZE + (line - SIZE)));
 
-export function scoreBoard(board: readonly Card[], bet: number, upgrades: Readonly<Record<number, CardUpgrade>>, score: ScoreMods): { lines: LineScore[]; payout: number } {
+/** Pairs of cards of one rank that sit next to each other across or down. Jokers, wild ranks and stones match nothing. */
+export function neighbours(board: readonly Card[], upgrades: Readonly<Record<number, CardUpgrade>>, wild: readonly number[] = []): number {
+  const face = (i: number): number | null => {
+    const c = board[i] as Card;
+    const u = upgrades[c];
+    return u?.joker || u?.stone || wild.includes(rankOf(c)) ? null : Math.min(14, rankOf(c) + (u?.rank ?? 0));
+  };
+  let n = 0;
+  for (let i = 0; i < CELLS; i++) {
+    const r = face(i);
+    if (r === null) continue;
+    if ((i + 1) % SIZE !== 0 && face(i + 1) === r) n++;
+    if (i + SIZE < CELLS && face(i + SIZE) === r) n++;
+  }
+  return n;
+}
+
+export function scoreBoard(board: readonly Card[], bet: number, upgrades: Readonly<Record<number, CardUpgrade>>, score: ScoreMods): { lines: LineScore[]; payout: number; adjacent: number } {
   const lines: LineScore[] = [];
   let sum = 0;
   for (let line = 0; line < LINES; line++) {
@@ -121,7 +144,7 @@ export function scoreBoard(board: readonly Card[], bet: number, upgrades: Readon
     const hand: HandCard[] = cards.map((c, i) => {
       const u = upgrades[c];
       if (u?.stone) return { rank: -100 - 10 * i, suit: -1 - i };
-      return { rank: Math.min(14, rankOf(c) + (u?.rank ?? 0)), suit: suitOf(c), joker: u?.joker, anySuit: u?.anySuit };
+      return { rank: Math.min(14, rankOf(c) + (u?.rank ?? 0)), suit: suitOf(c), joker: u?.joker || score.wildRanks?.includes(rankOf(c)) || undefined, anySuit: u?.anySuit };
     });
     const stones = cards.filter((c) => upgrades[c]?.stone).length;
     sum += STONE_PAY * bet * stones;
@@ -139,8 +162,10 @@ export function scoreBoard(board: readonly Card[], bet: number, upgrades: Readon
     lines.push({ line, rank, pay });
     sum += pay;
   }
+  const adjacent = neighbours(board, upgrades, score.wildRanks ?? []);
+  sum += (score.adjacency ?? 0) * bet * adjacent;
   const bonus = 1 + score.lineBonus * Math.max(0, lines.length - 3);
-  return { lines, payout: Math.round(sum * score.globalMul * bonus) };
+  return { lines, payout: Math.round(sum * score.globalMul * bonus), adjacent };
 }
 
 /**
@@ -164,9 +189,9 @@ export function drawRound(rng: Rng, d: Deal, hold: Hold, o: DrawOptions): RoundR
   d.board = board;
   d.draws++;
   const final = d.draws >= d.maxDraws;
-  if (!final) return { final, board, lines: [], payout: 0, drawn, sealCoins: 0 };
+  if (!final) return { final, board, lines: [], payout: 0, drawn, sealCoins: 0, adjacent: 0 };
   d.phase = "done";
   const scored = scoreBoard(board, d.bet, o.upgrades, o.score);
   const sealCoins = [...kept].filter((i) => o.upgrades[board[i] as Card]?.seal === "coin").length * COIN_SEAL_PAY * d.bet;
-  return { final, board, lines: scored.lines, payout: scored.payout + sealCoins, drawn, sealCoins };
+  return { final, board, lines: scored.lines, payout: scored.payout + sealCoins, drawn, sealCoins, adjacent: scored.adjacent };
 }

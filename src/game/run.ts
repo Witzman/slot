@@ -1,6 +1,6 @@
 import { BOSSES, BOSS_EVERY, CHARMS, CURSES, RARITY_PRICE, RARITY_WEIGHT, type Rarity, UPGRADES, VOUCHERS, upgradeCost } from "./content";
 import { setupById } from "./setups";
-import type { Mods } from "./mods";
+import { type Mods, scoreMods } from "./mods";
 import { type Rng, int, makeRng, weighted } from "./rng";
 import { HAND_ORDER } from "./hands";
 import { type CardKind, MAX_NEGATIVE, MAX_RANK_LEVELS, applyCardUpgrade, cardUpgradeCost, jokerLimit, shatterGlass } from "./cards-shop";
@@ -46,6 +46,8 @@ export interface Run {
   lockedLine: number;
   /** the voucher on sale in the shop after this round, or null */
   voucher: string | null;
+  /** coins to add to the next quota: a loan taken in the shop with its interest */
+  debt: number;
   /** the event waiting for a choice while the phase is "event" */
   event: string | null;
   completed: number;
@@ -104,6 +106,7 @@ export function startRun(seed: number, m: Mods, stake = 0, setup = "classic", da
     boss: null,
     lockedLine: -1,
     voucher: null,
+    debt: 0,
     event: null,
     completed: 0,
     turnsLeft: m.turns,
@@ -247,6 +250,17 @@ export function drawVoucher(rng: Rng, upgrades: Readonly<Record<string, number>>
   return open.length === 0 ? null : (open[int(rng, open.length)] as { id: string }).id;
 }
 
+/** What a loan costs back: this many times what was lent, rounded up, added to the next quota. */
+export const LOAN_RATE = 1.25;
+
+/** Borrow coins in the shop, up to the quota just paid. One loan at a time; it comes back with interest on top of the next quota. */
+export function takeLoan(run: Run, amount: number): boolean {
+  if (run.phase !== "draft" || run.debt > 0 || !Number.isInteger(amount) || amount < 1 || amount > run.quota) return false;
+  gain(run, amount);
+  run.debt = Math.ceil(amount * LOAN_RATE);
+  return true;
+}
+
 /** Buy the voucher on sale with tickets: it is permanent for the run. */
 export function buyVoucher(run: Run, id: string): boolean {
   const v = VOUCHERS.find((x) => x.id === id);
@@ -305,7 +319,9 @@ export function beginRound(run: Run, mk: (charms: string[]) => Mods): void {
   }
   run.phase = "play";
   run.draft = [];
-  run.quota = quotaFor(run.round, m);
+  run.quota = quotaFor(run.round, m) + run.debt;
+  if (run.debt > 0) run.events.push(`The loan is due: ${run.debt} coins are added to the quota.`);
+  run.debt = 0;
   run.turnsLeft = m.turns;
 }
 
@@ -362,7 +378,7 @@ export function drawHand(run: Run, m: Mods, hold: Hold): RoundResult | "bad-hold
   if (holdSlots(hold) > m.holdMax) return "bad-hold";
   if (!m.colHold && hold.cols.length > 0) return "bad-hold";
   const deadLines = run.lockedLine >= 0 ? [...m.deadLines, run.lockedLine] : m.deadLines;
-  const res = drawRound(run.rng, d, hold, { removedRanks: m.removedRanks, singleHold: m.singleHold, upgrades: run.cardUpgrades, score: { handMul: m.handMul, globalMul: m.slotWinMul, lineBonus: m.lineBonus, deadLines } });
+  const res = drawRound(run.rng, d, hold, { removedRanks: m.removedRanks, singleHold: m.singleHold, upgrades: run.cardUpgrades, score: scoreMods(m, deadLines) });
   if (typeof res === "string" || !res.final) return res;
   gain(run, res.payout);
   res.shattered = shatterGlass(run.rng, run.cardUpgrades, res.board, res.lines);
@@ -455,6 +471,7 @@ export function restoreRun(raw: unknown): Run | null {
   for (const v of VOUCHERS) if (v.requires !== undefined && upgrades[v.id] && !upgrades[v.requires]) delete upgrades[v.id];
   const voucher = VOUCHERS.some((v) => v.id === o.voucher && !upgrades[v.id]) ? (o.voucher as string) : null;
   const num0 = (x: unknown): number => (typeof x === "number" && Number.isFinite(x) ? x : 0);
+  const debt = Math.max(0, Math.floor(num0(o.debt)));
   const shop = Array.isArray(o.shop) ? o.shop.filter((c) => known.includes(c)) : [];
   const bossId = BOSSES.some((b) => b.id === o.boss) ? (o.boss as string) : null;
   const eventId = eventById(o.event ?? null) ? (o.event as string) : null;
@@ -466,7 +483,7 @@ export function restoreRun(raw: unknown): Run | null {
   const cardUpgrades = restoreCardUpgrades(o.cardUpgrades);
   const setup = setupById(typeof o.setup === "string" ? o.setup : "")?.id ?? "classic";
   const lockedLine = bossId === "lockout" && Number.isInteger(o.lockedLine) && (o.lockedLine as number) >= 0 && (o.lockedLine as number) < LINES ? (o.lockedLine as number) : -1;
-  return { ...(o as Run), stake: Math.min(5, Math.max(0, Math.floor(num0(o.stake)))), setup, daily: Math.max(0, Math.floor(num0(o.daily))), lockedLine, voucher, boss: bossId, event: o.phase === "event" ? eventId : null, stats, tickets: Math.max(0, Math.floor(num0(o.tickets))), hand, cardUpgrades, shop, shopRerolls: Math.max(0, Math.floor(num0(o.shopRerolls))), upgrades, events: [], found: 0, finished: o.finished === true, overReason: o.overReason ?? "" };
+  return { ...(o as Run), stake: Math.min(5, Math.max(0, Math.floor(num0(o.stake)))), setup, daily: Math.max(0, Math.floor(num0(o.daily))), lockedLine, voucher, debt, boss: bossId, event: o.phase === "event" ? eventId : null, stats, tickets: Math.max(0, Math.floor(num0(o.tickets))), hand, cardUpgrades, shop, shopRerolls: Math.max(0, Math.floor(num0(o.shopRerolls))), upgrades, events: [], found: 0, finished: o.finished === true, overReason: o.overReason ?? "" };
 }
 
 /** Buy an upgrade on one card of the deck with coins, for this run. Not a turn. False when it is not allowed or not affordable. */

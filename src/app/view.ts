@@ -4,7 +4,7 @@ import { BOSSES, CHARMS, CURSES, RELICS, RELIC_PERKS, TECH, UPGRADES, VOUCHERS, 
 import { CHALLENGE_CHIPS, SETUPS, setupUnlocked } from "../game/setups";
 import { eventById } from "../game/events";
 import type { Mods } from "../game/mods";
-import { type Run, canClose, charmPrice, quotaFor, shopRerollPrice } from "../game/run";
+import { LOAN_RATE, type Run, canClose, charmPrice, quotaFor, shopRerollPrice } from "../game/run";
 import { missionDef, missionProgress } from "../game/missions";
 import { rankOf, suitOf } from "../game/cards";
 import { BASE_PAY, HAND_LABEL, HAND_ORDER } from "../game/hands";
@@ -301,6 +301,15 @@ function setupPicker(v: View): string {
   return `<h3>Start deck</h3><div class="charms setups">${group("deck")}</div><h3>Challenges</h3><div class="charms setups">${group("challenge")}</div>`;
 }
 
+/** Borrow a quarter, half or all of the quota just paid: it comes back with a quarter on top, added to the next quota. */
+function loanRow(run: Run): string {
+  const btns = [0.25, 0.5, 1].map((f) => {
+    const n = Math.max(1, Math.floor(run.quota * f));
+    return `<button data-act="loan" data-v="${n}" ${run.debt > 0 ? "disabled" : ""}>Loan ${n} <small>repay ${Math.ceil(n * LOAN_RATE)}</small></button>`;
+  }).join("");
+  return `<h3>Loan</h3><div class="row">${btns}</div><p class="hint">${run.debt > 0 ? `You owe ${run.debt} coins with the next quota.` : "Coins now, a quarter more on the next quota."}</p>`;
+}
+
 const startLabel = (v: View): string => `Start ${SETUPS.find((s) => s.id === v.ui.setup)?.name ?? "run"}`;
 
 /** The daily run: the same board for everyone that day, the classic deck, no stake. */
@@ -354,6 +363,7 @@ export function overlay(v: View): string {
     const rr = shopRerollPrice(run);
     return `<div class="modal"><div class="card-box wide"><h2>Round ${run.round - 1} cleared</h2><p>Quota paid. The phone rings: take one charm for free, or skip it for 2 tickets.</p><div class="charms">${cards}</div>
       <button data-act="skip">Skip the call (+2 tickets)</button>
+      ${loanRow(run)}
       ${run.rerollsLeft > 0 ? `<button data-act="reroll">Re-draw the call (${run.rerollsLeft} left)</button>` : ""}
       <h3>Shop <span class="teal">${run.tickets} tickets</span></h3>
       <div class="charms">${shop || '<p class="hint">Sold out.</p>'}${voucher}</div>

@@ -184,3 +184,26 @@ describe("card upgrades on screen", () => {
     expect(html).not.toContain(">Glass</button>");
   });
 });
+
+describe("loan and hand levels on screen", () => {
+  it("offers three loans in the shop, and none while one is owed", () => {
+    const run = startRun(1, modsFor(newMeta(), "climb", []));
+    run.phase = "draft";
+    run.draft = ["runner"];
+    run.quota = 40;
+    const html = overlay(climb({ run }));
+    for (const n of [10, 20, 40]) expect(html).toContain(`data-act="loan" data-v="${n}" >Loan ${n} <small>repay ${Math.ceil(n * 1.25)}</small>`);
+    run.debt = 13;
+    const owed = overlay(climb({ run }));
+    expect(owed).toMatch(/data-act="loan" data-v="10" disabled/);
+    expect(owed).toContain("You owe 13 coins");
+  });
+
+  it("lists a level for every hand among the upgrades", () => {
+    const meta = newMeta();
+    const mods = modsFor(meta, "climb", []);
+    const html = shopPanel(climb({ meta, mods, run: startRun(1, mods) }));
+    expect(html).toContain("Flush level");
+    expect(html).toContain("Royal flush level");
+  });
+});
