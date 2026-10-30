@@ -223,6 +223,8 @@ export const ACHIEVEMENTS: readonly Achievement[] = [
   { id: "boss3", name: "Boss Rush", text: "Beat three bosses in one run.", chips: 10, test: (_, r) => (r?.stats.bosses ?? 0) >= 3 },
   { id: "stake1", name: "Raising the Stakes", text: "Unlock stake 1.", chips: 3, test: (m) => m.maxStake >= 1 },
   { id: "stake3", name: "High Stakes Hero", text: "Unlock stake 3.", chips: 8, test: (m) => m.maxStake >= 3 },
+  { id: "edition1", name: "Collector's Edition", text: "Own a card with an edition.", chips: 3, test: (_, r) => Object.values(r?.cardUpgrades ?? {}).some((u) => u.edition !== undefined) },
+  { id: "fullkit", name: "Fully Loaded", text: "Own a card with an enhancement, an edition and a seal.", chips: 6, test: (_, r) => Object.values(r?.cardUpgrades ?? {}).some((u) => u.edition !== undefined && u.seal !== undefined && (u.gold || u.glass || u.stone || u.joker || u.anySuit)) },
   { id: "challenge1", name: "Challenger", text: "Clear a challenge.", chips: 5, test: (m) => m.challenges.length >= 1 },
   { id: "challenge3", name: "Unbroken", text: "Clear every challenge.", chips: 12, test: (m) => m.challenges.length >= 3 },
   { id: "daily1", name: "Daily Bread", text: "Play the daily run.", chips: 3, test: (m) => m.daily.day > 0 },

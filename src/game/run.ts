@@ -3,7 +3,8 @@ import { setupById } from "./setups";
 import type { Mods } from "./mods";
 import { type Rng, int, makeRng, weighted } from "./rng";
 import { HAND_ORDER } from "./hands";
-import { type CardKind, MAX_JOKERS, MAX_RANK_LEVELS, cardUpgradeCost, applyCardUpgrade } from "./cards-shop";
+import { type CardKind, MAX_NEGATIVE, MAX_RANK_LEVELS, applyCardUpgrade, cardUpgradeCost, jokerLimit, shatterGlass } from "./cards-shop";
+import { cardName } from "./cards";
 import { type CardUpgrade, type Deal, type Hold, LINES, type RoundResult, deal, drawRound, holdSlots } from "./round";
 import { eventById, rollEvent } from "./events";
 import { type MissionState, drawMissions, updateMissions } from "./missions";
@@ -364,6 +365,8 @@ export function drawHand(run: Run, m: Mods, hold: Hold): RoundResult | "bad-hold
   const res = drawRound(run.rng, d, hold, { removedRanks: m.removedRanks, singleHold: m.singleHold, upgrades: run.cardUpgrades, score: { handMul: m.handMul, globalMul: m.slotWinMul, lineBonus: m.lineBonus, deadLines } });
   if (typeof res === "string" || !res.final) return res;
   gain(run, res.payout);
+  res.shattered = shatterGlass(run.rng, run.cardUpgrades, res.board, res.lines);
+  if (res.shattered.length > 0) run.events.push(`Glass shattered: ${res.shattered.map(cardName).join(", ")}`);
   const s = run.stats;
   s.spins++;
   s.slotWins += res.lines.length;
@@ -393,6 +396,8 @@ export function restoreHand(raw: unknown): Deal | null {
 export function restoreCardUpgrades(raw: unknown): Record<number, CardUpgrade> {
   const out: Record<number, CardUpgrade> = {};
   let jokers = 0;
+  let negatives = 0;
+  const pendingJokers: number[] = [];
   if (typeof raw !== "object" || raw === null) return out;
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     const card = Number(k);
@@ -400,13 +405,27 @@ export function restoreCardUpgrades(raw: unknown): Record<number, CardUpgrade> {
     const u = v as CardUpgrade;
     const clean: CardUpgrade = {};
     if (typeof u.rank === "number" && u.rank >= 1) clean.rank = Math.min(MAX_RANK_LEVELS, Math.floor(u.rank));
-    if (u.joker === true && jokers < MAX_JOKERS) {
-      clean.joker = true;
-      jokers++;
-    }
     if (u.gold === true) clean.gold = true;
     if (u.anySuit === true) clean.anySuit = true;
+    if (u.glass === true) clean.glass = true;
+    if (u.edition === "negative" && negatives < MAX_NEGATIVE) {
+      clean.edition = "negative";
+      negatives++;
+    } else if (u.edition === "foil" || u.edition === "holo" || u.edition === "poly") clean.edition = u.edition;
+    if (u.seal === "coin" || u.seal === "red") clean.seal = u.seal;
+    // a stone is a blank and carries nothing that changes what the card is
+    if (u.stone === true && !clean.rank && !clean.glass && !clean.anySuit && u.joker !== true) {
+      clean.stone = true;
+    } else if (u.joker === true) {
+      pendingJokers.push(card);
+    }
     if (Object.keys(clean).length > 0) out[card] = clean;
+  }
+  // jokers last, so the negative cards that lift the limit are all counted
+  for (const card of pendingJokers) {
+    if (jokers >= jokerLimit(out) || out[card]?.stone) continue;
+    out[card] = { ...(out[card] ?? {}), joker: true };
+    jokers++;
   }
   return out;
 }

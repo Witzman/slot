@@ -1,6 +1,6 @@
 // The players of the simulation: a competent one that decides its holds by expected value, and two that do not think.
 import { CHARMS, UPGRADES, upgradeCost } from "../../src/game/content";
-import { type CardKind, CARD_KINDS, applyCardUpgrade, cardUpgradeCost } from "../../src/game/cards-shop";
+import { type CardKind, applyCardUpgrade, cardUpgradeCost } from "../../src/game/cards-shop";
 import { rankOf, suitOf } from "../../src/game/cards";
 import type { Mods } from "../../src/game/mods";
 import { type Run, quotaFor } from "../../src/game/run";
@@ -158,9 +158,8 @@ export const smart: Policy = {
   voucher: () => true,
   buyCard(run, m) {
     // gold on a card that sits in a held line pays most; the bot keeps it simple: gild or rank up the cards of the deck at random once it is rich
-    const kinds = CARD_KINDS.filter((k) => m.cardKinds.includes(k) && k !== "joker");
-    if (kinds.length === 0) return null;
-    const kind = (kinds.includes("gold") ? "gold" : "rank") as CardKind;
+    const kind = (["poly", "holo", "gold", "foil", "rank"] as const).find((k) => m.cardKinds.includes(k)) as CardKind | undefined;
+    if (kind === undefined) return null;
     const cost = cardUpgradeCost(run.cardUpgrades, kind, m.cardCostMul);
     if (run.coins - cost < run.quota * 2 + 100) return null;
     const card = [...Array(52).keys()].filter((c) => !m.removedRanks.includes(rankOf(c))).find((c) => applyCardUpgrade(run.cardUpgrades, c, kind) !== null && rankOf(c) >= 10);

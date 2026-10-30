@@ -163,7 +163,7 @@ async function boot(): Promise<void> {
       sfx.card();
     } else {
       const best = res.lines.reduce<typeof res.lines[number] | undefined>((b, l) => (b === undefined || l.pay > b.pay ? l : b), undefined);
-      ui.slotNote = res.payout > 0 ? `${res.lines.length} hand${res.lines.length > 1 ? "s" : ""} · best: ${best ? HAND_LABEL[best.rank] : ""} · won ${res.payout} coins` : "No hand pays. Next round.";
+      ui.slotNote = res.payout > 0 ? `${res.lines.length} hand${res.lines.length > 1 ? "s" : ""} · best: ${best ? HAND_LABEL[best.rank] : ""} · won ${res.payout} coins${res.sealCoins > 0 ? ` (${res.sealCoins} from coin seals)` : ""}${(res.shattered?.length ?? 0) > 0 ? " · glass shattered" : ""}` : "No hand pays. Next round.";
       if (res.payout >= (mode === "endless" ? session?.hand?.bet : run?.hand?.bet ?? 1)! * 60) sfx.big();
       else if (res.payout > 0) sfx.win();
       else sfx.lose();
