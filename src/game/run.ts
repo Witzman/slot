@@ -2,8 +2,8 @@ import { BOSSES, BOSS_EVERY, CHARMS, CURSES, RARITY_PRICE, RARITY_WEIGHT, UPGRAD
 import type { Mods } from "./mods";
 import { type Rng, int, makeRng, weighted } from "./rng";
 import { HAND_ORDER } from "./hands";
-import { type CardKind, cardUpgradeCost, applyCardUpgrade } from "./cards-shop";
-import { type CardUpgrade, type Deal, type Hold, LINES, type RoundResult, deal, drawRound } from "./round";
+import { type CardKind, MAX_JOKERS, MAX_RANK_LEVELS, cardUpgradeCost, applyCardUpgrade } from "./cards-shop";
+import { type CardUpgrade, type Deal, type Hold, LINES, type RoundResult, deal, drawRound, holdSlots } from "./round";
 import { eventById, rollEvent } from "./events";
 import { type MissionState, drawMissions, updateMissions } from "./missions";
 
@@ -300,7 +300,7 @@ export function dealRound(run: Run, m: Mods, bet: number): Refusal | Deal {
 export function drawHand(run: Run, m: Mods, hold: Hold): RoundResult | "bad-hold" | "no-hand" {
   const d = run.hand;
   if (run.phase !== "play" || d === null || d.phase !== "hold") return "no-hand";
-  if (hold.rows.length + hold.cols.length > m.holdMax || (m.holdMax === 0 && hold.cells.length > 0)) return "bad-hold";
+  if (holdSlots(hold) > m.holdMax) return "bad-hold";
   const res = drawRound(run.rng, d, hold, { removedRanks: m.removedRanks, singleHold: m.singleHold, upgrades: run.cardUpgrades, score: { handMul: m.handMul, globalMul: m.slotWinMul, lineBonus: m.lineBonus } });
   if (typeof res === "string" || !res.final) return res;
   gain(run, res.payout);
@@ -332,14 +332,18 @@ export function restoreHand(raw: unknown): Deal | null {
 
 export function restoreCardUpgrades(raw: unknown): Record<number, CardUpgrade> {
   const out: Record<number, CardUpgrade> = {};
+  let jokers = 0;
   if (typeof raw !== "object" || raw === null) return out;
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     const card = Number(k);
     if (!Number.isInteger(card) || card < 0 || card > 51 || typeof v !== "object" || v === null) continue;
     const u = v as CardUpgrade;
     const clean: CardUpgrade = {};
-    if (typeof u.rank === "number" && u.rank >= 1) clean.rank = Math.min(12, Math.floor(u.rank));
-    if (u.joker === true) clean.joker = true;
+    if (typeof u.rank === "number" && u.rank >= 1) clean.rank = Math.min(MAX_RANK_LEVELS, Math.floor(u.rank));
+    if (u.joker === true && jokers < MAX_JOKERS) {
+      clean.joker = true;
+      jokers++;
+    }
     if (u.gold === true) clean.gold = true;
     if (u.anySuit === true) clean.anySuit = true;
     if (Object.keys(clean).length > 0) out[card] = clean;
@@ -376,8 +380,7 @@ export function restoreRun(raw: unknown): Run | null {
   const stats = { ...(o.stats as RunStats), events: Math.max(0, Math.floor(num0(st.events))), bosses: Math.max(0, Math.floor(num0(st.bosses))), heldWins: Math.max(0, Math.floor(num0(st.heldWins))), singleWins: Math.max(0, Math.floor(num0(st.singleWins))), bestLines: Math.max(0, Math.floor(num0(st.bestLines))), bestHand: Math.max(0, Math.floor(num0(st.bestHand))) };
   if (o.phase === "event" && !eventId) return null;
   if (!("hand" in o) || !("cardUpgrades" in o)) return null; // a run from before the cards
-  const hand = restoreHand(o.hand);
-  if (o.hand !== null && hand === null) return null;
+  const hand = restoreHand(o.hand); // a hand that does not read back is dropped, the run goes on
   const cardUpgrades = restoreCardUpgrades(o.cardUpgrades);
   return { ...(o as Run), stake: Math.min(5, Math.max(0, Math.floor(num0(o.stake)))), boss: bossId, event: o.phase === "event" ? eventId : null, stats, tickets: Math.max(0, Math.floor(num0(o.tickets))), hand, cardUpgrades, shop, shopRerolls: Math.max(0, Math.floor(num0(o.shopRerolls))), upgrades, events: [], found: 0, finished: o.finished === true, overReason: o.overReason ?? "" };
 }

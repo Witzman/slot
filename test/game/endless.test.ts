@@ -189,10 +189,10 @@ describe("endless mode", () => {
     expect(restoreSession(JSON.parse(JSON.stringify(s)))).toEqual(s);
     for (const raw of [null, 5, "x", [], {}, { rng: { s: "x" } }, { ...s, coins: "many" }]) expect(restoreSession(raw)).toBeNull();
     const odd = restoreSession({ ...JSON.parse(JSON.stringify(s)), upgrades: { ehold: 99, nope: 3, epay: -1 }, cardUpgrades: { 99: { gold: true }, 3: { rank: 99 } }, coins: -5, milestones: 999, prestige: -2, hand: { board: [1] } });
-    expect(odd).toBeNull();
+    expect(odd?.hand).toBeNull(); // the bad hand is dropped, the session goes on
     const ok = restoreSession({ ...JSON.parse(JSON.stringify(s)), hand: null, upgrades: { ehold: 99, nope: 3, epay: -1 }, cardUpgrades: { 99: { gold: true }, 3: { rank: 99 } }, coins: -5, milestones: 999, prestige: -2 });
     expect(ok?.upgrades).toEqual({ ehold: ENDLESS_SHOP.find((u) => u.id === "ehold")?.max });
-    expect(ok?.cardUpgrades).toEqual({ 3: { rank: 12 } });
+    expect(ok?.cardUpgrades).toEqual({ 3: { rank: 3 } });
     expect([ok?.coins, ok?.milestones, ok?.prestige]).toEqual([0, MILESTONES.length, 0]);
   });
 });

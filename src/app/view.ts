@@ -334,8 +334,11 @@ function minutes(ms: number): string {
 /** What the owner compares the two modes by: how often, how long, how it ended. */
 function modeStats(v: View, m: ModeId): string {
   const st = v.meta[m].stats;
+  const live = m === "endless" ? v.session : null; // the session in progress counts, it has not ended yet
+  const sessions = st.sessions + (live ? 1 : 0);
+  const rounds = st.spins + (live?.rounds ?? 0);
   const ends = Object.entries(st.endings).map(([k, n]) => `${k} ${n}`).join(", ") || "none yet";
-  return `<p class="hint">${st.sessions} session${st.sessions === 1 ? "" : "s"} · ${minutes(st.playMs)} played · ${st.spins} rounds · endings: ${esc(ends)} · ${v.meta[m].chips} chips</p>`;
+  return `<p class="hint">${sessions} session${sessions === 1 ? "" : "s"} · ${minutes(st.playMs)} played · ${rounds} rounds · endings: ${esc(ends)} · ${v.meta[m].chips} chips</p>`;
 }
 
 /** The start screen: both modes with a text each and their numbers. */

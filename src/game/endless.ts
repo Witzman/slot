@@ -1,10 +1,11 @@
 import { ENDLESS_UPGRADES, type Upgrade, upgradeCost } from "./content";
 import { type CardKind, applyCardUpgrade, cardUpgradeCost } from "./cards-shop";
-import { type Meta, modsFor } from "./meta";
+import { type Meta, type RunView, modsFor } from "./meta";
 import type { Mods } from "./mods";
 import { type Rng, makeRng } from "./rng";
 import { restoreCardUpgrades, restoreHand } from "./run";
-import { type CardUpgrade, type Deal, type Hold, LINES, type RoundResult, SIZE, deal, drawRound, scoreBoard } from "./round";
+import { HAND_ORDER } from "./hands";
+import { type CardUpgrade, type Deal, type Hold, LINES, type RoundResult, SIZE, deal, drawRound, holdSlots, scoreBoard } from "./round";
 
 /** Endless mode (#10): no quota, no turns. The player plays rounds at their own pace, buys upgrades and card upgrades with coins, and prestiges at a late milestone. */
 export interface Session {
@@ -25,6 +26,13 @@ export interface Session {
   /** how often the player has prestiged */
   prestige: number;
   bestLines: number;
+  /** numbers the achievements read, since the session began (they are not reset by a prestige) */
+  bestHand: number;
+  bestWin: number;
+  heldWins: number;
+  singleWins: number;
+  maxCoins: number;
+  linesTotal: number;
   /** the machine plays by itself (only when the tree gave an auto rate) */
   autoOn: boolean;
 }
@@ -57,7 +65,7 @@ export function endlessMods(meta: Meta, s: Session): Mods {
 }
 
 export function startSession(seed: number, m: Mods, prestigeCount: number): Session {
-  return { rng: makeRng(seed), coins: m.startCoins, rounds: 0, totalEarned: 0, upgrades: {}, cardUpgrades: {}, hand: null, milestones: 0, prestige: prestigeCount, bestLines: 0, autoOn: false };
+  return { rng: makeRng(seed), coins: m.startCoins, rounds: 0, totalEarned: 0, upgrades: {}, cardUpgrades: {}, hand: null, milestones: 0, prestige: prestigeCount, bestLines: 0, bestHand: 0, bestWin: 0, heldWins: 0, singleWins: 0, maxCoins: m.startCoins, linesTotal: 0, autoOn: false };
 }
 
 /**
@@ -79,13 +87,19 @@ export function dealSession(s: Session, m: Mods, bet: number): SessionRefusal | 
 export function drawSession(s: Session, m: Mods, hold: Hold): RoundResult | SessionRefusal {
   const d = s.hand;
   if (d === null || d.phase !== "hold") return "no-hand";
-  if (hold.rows.length + hold.cols.length > m.holdMax || (m.holdMax === 0 && hold.cells.length > 0)) return "bad-hold";
+  if (holdSlots(hold) > m.holdMax) return "bad-hold";
   const res = drawRound(s.rng, d, hold, { removedRanks: m.removedRanks, singleHold: m.singleHold, upgrades: s.cardUpgrades, score: { handMul: m.handMul, globalMul: m.slotWinMul, lineBonus: m.lineBonus } });
   if (typeof res === "string" || !res.final) return res;
   s.coins += res.payout;
   s.totalEarned += res.payout;
   s.rounds++;
   s.bestLines = Math.max(s.bestLines, res.lines.length);
+  s.linesTotal += res.lines.length;
+  s.bestWin = Math.max(s.bestWin, res.payout);
+  s.maxCoins = Math.max(s.maxCoins, s.coins);
+  for (const l of res.lines) s.bestHand = Math.max(s.bestHand, HAND_ORDER.indexOf(l.rank) + 1);
+  if (res.payout > 0 && hold.rows.length + hold.cols.length > 0) s.heldWins++;
+  if (res.payout > 0 && hold.cells.length > 0) s.singleWins++;
   while (s.milestones < MILESTONES.length && s.totalEarned >= (MILESTONES[s.milestones] as number)) s.milestones++;
   return res;
 }
@@ -123,6 +137,11 @@ export function buySessionCard(s: Session, card: number, kind: CardKind, m: Mods
   return true;
 }
 
+/** The numbers of a session in the shape the achievements read. */
+export function sessionView(s: Session): RunView {
+  return { round: 0, cardUpgrades: s.cardUpgrades, stats: { spins: s.rounds, slotWins: s.linesTotal, bestSlotWin: s.bestWin, bestLines: s.bestLines, bestHand: s.bestHand, heldWins: s.heldWins, singleWins: s.singleWins, relics: 0, maxCoins: s.maxCoins, bosses: 0, events: 0 } };
+}
+
 export const canPrestige = (s: Session): boolean => s.milestones >= PRESTIGE_AT;
 
 /** Start over with a permanent win multiplier and chips for the endless tree. Returns the chips (0 when prestige is not open yet). */
@@ -151,13 +170,12 @@ export function restoreSession(raw: unknown): Session | null {
   const isNum = (x: unknown): x is number => typeof x === "number" && Number.isFinite(x);
   const rng = o.rng as { s?: unknown } | null;
   if (!rng || typeof rng !== "object" || !isNum(rng.s) || !isNum(o.coins)) return null;
-  const hand = o.hand === null || o.hand === undefined ? null : restoreHand(o.hand);
-  if (o.hand !== null && o.hand !== undefined && hand === null) return null;
+  const hand = o.hand === null || o.hand === undefined ? null : restoreHand(o.hand); // a hand that does not read back is dropped, the session goes on (the prestige count lives here)
   const nat = (x: unknown, max = Number.MAX_SAFE_INTEGER): number => (isNum(x) ? Math.min(max, Math.max(0, Math.floor(x))) : 0);
   const upgrades: Record<string, number> = {};
   for (const u of ENDLESS_SHOP) {
     const l = (o.upgrades as Record<string, unknown> | undefined)?.[u.id];
     if (isNum(l) && l >= 1) upgrades[u.id] = Math.min(u.max, Math.floor(l));
   }
-  return { rng: { s: rng.s }, coins: nat(o.coins), rounds: nat(o.rounds), totalEarned: nat(o.totalEarned), upgrades, cardUpgrades: restoreCardUpgrades(o.cardUpgrades), hand, milestones: nat(o.milestones, MILESTONES.length), prestige: nat(o.prestige), bestLines: nat(o.bestLines), autoOn: o.autoOn === true };
+  return { rng: { s: rng.s }, coins: nat(o.coins), rounds: nat(o.rounds), totalEarned: nat(o.totalEarned), upgrades, cardUpgrades: restoreCardUpgrades(o.cardUpgrades), hand, milestones: nat(o.milestones, MILESTONES.length), prestige: nat(o.prestige), bestLines: nat(o.bestLines), bestHand: nat(o.bestHand, HAND_ORDER.length), bestWin: nat(o.bestWin), heldWins: nat(o.heldWins), singleWins: nat(o.singleWins), maxCoins: nat(o.maxCoins), linesTotal: nat(o.linesTotal), autoOn: o.autoOn === true };
 }

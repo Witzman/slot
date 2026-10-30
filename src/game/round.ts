@@ -71,6 +71,9 @@ export function deal(rng: Rng, bet: number, removedRanks: readonly number[] = []
   return { board: shuffle(rng, freshDeck(removedRanks)).slice(0, CELLS), bet, phase: "hold", draws: 0, maxDraws: 1 + Math.max(0, Math.floor(extraDraws)) };
 }
 
+/** How much of the hold limit a hold uses: a line is one, every five single cards are one more. */
+export const holdSlots = (h: Hold): number => h.rows.length + h.cols.length + Math.ceil(h.cells.length / SIZE);
+
 /** The cells that stay: held rows, held columns and held single cells. */
 export function heldCells(rows: readonly number[], cols: readonly number[], cells: readonly number[]): Set<number> {
   const kept = new Set<number>(cells);
