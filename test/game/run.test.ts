@@ -12,7 +12,7 @@ const baseMods = () => {
 import { type Run, beginRound, canClose, closeRound, dealRound, drainEvents, drawHand, pickCharm, quotaFor, rerollDraft, restoreRun, startRun } from "../../src/game/run";
 import { makeRng } from "../../src/game/rng";
 
-const mk = (charms: string[]) => modsFor(newMeta(), charms);
+const mk = (charms: string[]) => modsFor(newMeta(), "climb", charms);
 
 const NOTHING = { rows: [], cols: [], cells: [] };
 /** One round the plain way: deal and draw, holding nothing. Returns the draw's result, or the refusal. */
@@ -84,7 +84,7 @@ describe("a run", () => {
     m.singleHold = true;
     expect(typeof drawHand(run, m, { rows: [], cols: [], cells: [3] })).toBe("object");
     const run2 = startRun(4, baseMods());
-    const none = modsFor(newMeta(), [], {}, "nohold");
+    const none = modsFor(newMeta(), "climb", [], {}, "nohold");
     dealRound(run2, none, 1);
     expect(drawHand(run2, none, { rows: [1], cols: [], cells: [] })).toBe("bad-hold");
     expect(typeof drawHand(run2, none, NOTHING)).toBe("object");
@@ -183,10 +183,10 @@ describe("a run", () => {
     run.coins = 500;
     run.turnsLeft = 0;
     const meta = newMeta();
-    meta.tech = ["purse1", "time1", "reroll"];
-    const quiet = modsFor(meta, []);
+    meta.climb.tech = ["purse1", "time1", "reroll"];
+    const quiet = modsFor(meta, "climb", []);
     quiet.eventChance = 0;
-    closeRound(run, quiet, (c) => modsFor(meta, c));
+    closeRound(run, quiet, (c) => modsFor(meta, "climb", c));
     const first = [...run.draft];
     expect(rerollDraft(run)).toBe(true);
     expect(run.draft.some((d) => first.includes(d))).toBe(false);
@@ -229,14 +229,14 @@ describe("a run", () => {
 describe("the meta game", () => {
   it("tree: nothing is bought without chips or its prerequisite, and a node is bought once", () => {
     const meta = newMeta();
-    expect(canBuy(meta, "purse1")).toBe(false);
-    meta.chips = 100;
-    expect(canBuy(meta, "purse2")).toBe(false);
-    expect(buyTech(meta, "purse1")).toBe(true);
-    expect(buyTech(meta, "purse1")).toBe(false);
-    expect(buyTech(meta, "purse2")).toBe(true);
-    expect(meta.chips).toBe(100 - 3 - 8);
-    expect(modsFor(meta, []).startCoins).toBe(baseMods().startCoins + 20 + 40);
+    expect(canBuy(meta, "climb", "purse1")).toBe(false);
+    meta.climb.chips = 100;
+    expect(canBuy(meta, "climb", "purse2")).toBe(false);
+    expect(buyTech(meta, "climb", "purse1")).toBe(true);
+    expect(buyTech(meta, "climb", "purse1")).toBe(false);
+    expect(buyTech(meta, "climb", "purse2")).toBe(true);
+    expect(meta.climb.chips).toBe(100 - 3 - 8);
+    expect(modsFor(meta, "climb", []).startCoins).toBe(baseMods().startCoins + 20 + 40);
   });
 
   it("tree: every node can be reached and has an effect", () => {
@@ -248,29 +248,29 @@ describe("the meta game", () => {
       if (t.id !== "case1" && t.id !== "case2") expect(JSON.stringify(m), t.id).not.toBe(JSON.stringify(baseMods())); // the cases add relic slots, not mods
     }
     const meta = newMeta();
-    meta.chips = 10_000;
-    for (let pass = 0; pass < TECH.length; pass++) for (const t of TECH) buyTech(meta, t.id);
-    expect(meta.tech).toHaveLength(TECH.length);
+    meta.climb.chips = 10_000;
+    for (let pass = 0; pass < TECH.length; pass++) for (const t of TECH) buyTech(meta, "climb", t.id);
+    expect(meta.climb.tech).toHaveLength(TECH.length);
   });
 
   it("restores a saved meta, and survives garbage", () => {
     const meta = newMeta();
-    meta.chips = 12;
-    meta.tech = ["purse1"];
+    meta.climb.chips = 12;
+    meta.climb.tech = ["purse1"];
     meta.relics = ["penny"];
     expect(restoreMeta(JSON.parse(JSON.stringify(meta)))).toEqual(meta);
     expect(restoreMeta(null)).toEqual(newMeta());
     expect(restoreMeta("x")).toEqual(newMeta());
     expect(restoreMeta({ v: 2 })).toEqual(newMeta());
     const odd = restoreMeta({ v: 1, chips: -4, tech: ["purse2", "nope", "purse1", "purse1"], relics: [5, "dice"], ach: ["first", "x"] });
-    expect(odd.chips).toBe(0);
-    expect(odd.tech).toEqual(["purse2", "purse1"].filter((t) => t === "purse1" || odd.tech.includes("purse1")));
+    expect(odd.climb.chips).toBe(0);
+    expect(odd.climb.tech).toEqual(["purse2", "purse1"].filter((t) => t === "purse1" || odd.climb.tech.includes("purse1")));
     expect(odd.relics).toEqual(["dice"]);
     expect(odd.ach).toEqual(["first"]);
   });
 
   it("drops a saved node whose prerequisite is missing", () => {
-    expect(restoreMeta({ v: 1, tech: ["purse2"] }).tech).toEqual([]);
+    expect(restoreMeta({ v: 1, tech: ["purse2"] }).climb.tech).toEqual([]);
   });
 
   it("files relics without repeats until all are found", () => {
@@ -291,7 +291,7 @@ describe("the meta game", () => {
     run.chipsPending = 3;
     expect(finishRun(meta, run)).toBe(2 * 3 + 1 + 3);
     expect(finishRun(meta, run)).toBe(0);
-    expect([meta.chips, meta.runs, meta.bestRound]).toEqual([10, 1, 3]);
+    expect([meta.climb.chips, meta.runs, meta.bestRound]).toEqual([10, 1, 3]);
   });
 
   it("unlocks achievements once and pays their chips", () => {
@@ -299,12 +299,12 @@ describe("the meta game", () => {
     const run = startRun(1, baseMods());
     run.stats.spins = 1;
     run.round = 5;
-    const fresh = checkAchievements(meta, run).map((a) => a.id);
+    const fresh = checkAchievements(meta, "climb", run).map((a) => a.id);
     expect(fresh).toEqual(expect.arrayContaining(["first", "r3", "r5"]));
-    const chips = meta.chips;
+    const chips = meta.climb.chips;
     expect(chips).toBeGreaterThan(0);
-    expect(checkAchievements(meta, run)).toEqual([]);
-    expect(meta.chips).toBe(chips);
+    expect(checkAchievements(meta, "climb", run)).toEqual([]);
+    expect(meta.climb.chips).toBe(chips);
     expect(new Set(ACHIEVEMENTS.map((a) => a.id)).size).toBe(ACHIEVEMENTS.length);
   });
 });
@@ -343,7 +343,7 @@ describe("run upgrades", () => {
       expect(before - run.coins).toBe(upgradeCost(u, l));
     }
     expect(buyUpgrade(run, u.id)).toBe(false);
-    expect(modsFor(newMeta(), [], run.upgrades).slotWinMul).toBeCloseTo(1 + 0.1 * u.max);
+    expect(modsFor(newMeta(), "climb", [], run.upgrades).slotWinMul).toBeCloseTo(1 + 0.1 * u.max);
   });
 
   it("refuses without coins, unknown ids and outside a round, and charges nothing", async () => {
@@ -422,7 +422,7 @@ describe("crafting relics", () => {
   it("pays a start coin for every two relics", () => {
     const meta = newMeta();
     meta.relics = ["penny", "dice", "tooth"];
-    expect(modsFor(meta, []).startCoins).toBe(baseMods().startCoins + 1);
+    expect(modsFor(meta, "climb", []).startCoins).toBe(baseMods().startCoins + 1);
   });
 });
 
@@ -435,10 +435,10 @@ describe("the removed pusher and poker", () => {
   });
 
   it("restoreMeta refunds the chips of removed tech nodes and drops them", () => {
-    const meta = restoreMeta({ ...newMeta(), chips: 5, tech: ["purse1", "pbet", "zone4"] });
-    expect(meta.tech).toEqual(["purse1"]);
-    expect(meta.chips).toBe(5 + 4 + 12);
-    expect(restoreMeta({ ...newMeta(), chips: 0, tech: ["pbet", "pbet"] }).chips).toBe(4);
+    const meta = restoreMeta({ v: 1, chips: 5, tech: ["purse1", "pbet", "zone4"] });
+    expect(meta.climb.tech).toEqual(["purse1"]);
+    expect(meta.climb.chips).toBe(5 + 4 + 12);
+    expect(restoreMeta({ v: 1, chips: 0, tech: ["pbet", "pbet"] }).climb.chips).toBe(4);
   });
 });
 
@@ -549,19 +549,19 @@ describe("charm shop and tickets", () => {
 describe("hand charms", () => {
   it("raise the pay of their hands and leave the others", () => {
     const base = baseMods();
-    const sharp = modsFor(newMeta(), ["sharp"]);
+    const sharp = modsFor(newMeta(), "climb", ["sharp"]);
     expect([sharp.handMul.jacks, sharp.handMul.twoPair, sharp.handMul.flush]).toEqual([1.5, 1.5, base.handMul.flush]);
-    expect(modsFor(newMeta(), ["royalty"]).handMul.royal).toBe(2);
-    expect(modsFor(newMeta(), ["encore"]).lineBonus).toBeCloseTo(0.3);
-    expect(modsFor(newMeta(), ["colddeck"]).removedRanks).toEqual([2]);
-    expect(modsFor(newMeta(), ["colddeck", "slimdeck"]).removedRanks).toEqual([2, 3]);
-    expect(modsFor(newMeta(), ["steady"]).singleHold).toBe(true);
-    expect(modsFor(newMeta(), ["seconddraw"]).redraws).toBe(1);
+    expect(modsFor(newMeta(), "climb", ["royalty"]).handMul.royal).toBe(2);
+    expect(modsFor(newMeta(), "climb", ["encore"]).lineBonus).toBeCloseTo(0.3);
+    expect(modsFor(newMeta(), "climb", ["colddeck"]).removedRanks).toEqual([2]);
+    expect(modsFor(newMeta(), "climb", ["colddeck", "slimdeck"]).removedRanks).toEqual([2, 3]);
+    expect(modsFor(newMeta(), "climb", ["steady"]).singleHold).toBe(true);
+    expect(modsFor(newMeta(), "climb", ["seconddraw"]).redraws).toBe(1);
   });
 
   it("keep the return of a greedy player in a sane range with every hand charm at once", async () => {
     const { scoreBoard, deal, drawRound } = await import("../../src/game/round");
-    const m = modsFor(newMeta(), ["sharp", "threes", "runner", "flushfever", "fulltable"]);
+    const m = modsFor(newMeta(), "climb", ["sharp", "threes", "runner", "flushfever", "fulltable"]);
     const rng = makeRng(321);
     let paid = 0;
     const n = 3000;
@@ -571,7 +571,7 @@ describe("hand charms", () => {
       if (typeof res === "string") throw new Error(res);
       paid += res.payout;
     }
-    const base = modsFor(newMeta(), []);
+    const base = modsFor(newMeta(), "climb", []);
     let paidBase = 0;
     const rng2 = makeRng(321);
     for (let i = 0; i < n; i++) {
@@ -588,7 +588,7 @@ describe("hand charms", () => {
 
 describe("bosses", () => {
   const meta = newMeta();
-  const mkBoss = (run: Run) => (c: string[]) => modsFor(meta, c, run.upgrades, run.boss, run.stake);
+  const mkBoss = (run: Run) => (c: string[]) => modsFor(meta, "climb", c, run.upgrades, run.boss, run.stake);
 
   const toRound = (round: number, seed = 5): Run => {
     const run = startRun(seed, baseMods());
@@ -612,14 +612,14 @@ describe("bosses", () => {
 
   it("changes the mods by the rule of the boss, and only for that round", async () => {
     const { BOSSES } = await import("../../src/game/content");
-    const plain = modsFor(meta, []);
-    expect(modsFor(meta, [], {}, "nohold").holdMax).toBe(0);
-    const low = modsFor(meta, [], {}, "lowpay");
+    const plain = modsFor(meta, "climb", []);
+    expect(modsFor(meta, "climb", [], {}, "nohold").holdMax).toBe(0);
+    const low = modsFor(meta, "climb", [], {}, "lowpay");
     expect([low.handMul.jacks, low.handMul.twoPair, low.handMul.flush]).toEqual([0, 0, plain.handMul.flush]);
-    expect(modsFor(meta, [], {}, "landlord").turns).toBe(plain.turns - 3);
-    expect(modsFor(meta, [], {}, "edge").slotWinMul).toBeCloseTo(0.7);
-    expect(modsFor(meta, [], {}, "collector").quotaMul).toBeCloseTo(1.35);
-    for (const b of BOSSES) expect(modsFor(meta, [], {}, b.id).quotaMul, b.id).toBeGreaterThanOrEqual(1.2);
+    expect(modsFor(meta, "climb", [], {}, "landlord").turns).toBe(plain.turns - 3);
+    expect(modsFor(meta, "climb", [], {}, "edge").slotWinMul).toBeCloseTo(0.7);
+    expect(modsFor(meta, "climb", [], {}, "collector").quotaMul).toBeCloseTo(1.35);
+    for (const b of BOSSES) expect(modsFor(meta, "climb", [], {}, b.id).quotaMul, b.id).toBeGreaterThanOrEqual(1.2);
     const run = toRound(3);
     run.coins = 500;
     run.turnsLeft = 0;
@@ -663,11 +663,11 @@ describe("bosses", () => {
 describe("stakes", () => {
   it("raise the quota by 12% each and take a turn from stake 3 on", () => {
     const meta = newMeta();
-    const plain = modsFor(meta, []);
-    expect(modsFor(meta, [], {}, null, 1).quotaMul).toBeCloseTo(1.12);
-    expect(modsFor(meta, [], {}, null, 2).turns).toBe(plain.turns);
-    expect(modsFor(meta, [], {}, null, 3).turns).toBe(plain.turns - 1);
-    expect(quotaFor(1, modsFor(meta, [], {}, null, 5))).toBeGreaterThan(quotaFor(1, plain));
+    const plain = modsFor(meta, "climb", []);
+    expect(modsFor(meta, "climb", [], {}, null, 1).quotaMul).toBeCloseTo(1.12);
+    expect(modsFor(meta, "climb", [], {}, null, 2).turns).toBe(plain.turns);
+    expect(modsFor(meta, "climb", [], {}, null, 3).turns).toBe(plain.turns - 1);
+    expect(quotaFor(1, modsFor(meta, "climb", [], {}, null, 5))).toBeGreaterThan(quotaFor(1, plain));
   });
 
   it("pay more chips, and a boss beaten at the top unlocked stake unlocks the next", () => {
@@ -713,7 +713,7 @@ describe("stakes", () => {
     meta.maxStake = 1;
     const run = startRun(1, baseMods());
     run.stats.bosses = 1;
-    expect(checkAchievements(meta, run).map((a) => a.id)).toEqual(expect.arrayContaining(["boss1", "stake1"]));
+    expect(checkAchievements(meta, "climb", run).map((a) => a.id)).toEqual(expect.arrayContaining(["boss1", "stake1"]));
   });
 });
 
@@ -743,7 +743,7 @@ describe("relic perks", () => {
     expect(toggleEquip(meta, "eye")).toBe(false); // not owned
     expect(toggleEquip(meta, "penny")).toBe(true); // off
     expect(meta.loadout).toEqual(["dice"]);
-    meta.tech = ["purse1", "case1", "case2"];
+    meta.climb.tech = ["purse1", "case1", "case2"];
     expect(relicSlots(meta)).toBe(4);
   });
 
@@ -751,26 +751,26 @@ describe("relic perks", () => {
     const meta = newMeta();
     meta.relics = ["penny", "horse"];
     meta.loadout = ["penny"];
-    const m = modsFor(meta, []);
+    const m = modsFor(meta, "climb", []);
     expect(m.startCoins).toBe(baseMods().startCoins + 5 + 1);
     expect(m.slotWinMul).toBe(1);
     meta.loadout = ["penny", "horse"];
-    expect(modsFor(meta, []).slotWinMul).toBeCloseTo(1.1);
+    expect(modsFor(meta, "climb", []).slotWinMul).toBeCloseTo(1.1);
   });
 
   it("does not apply a loadout that is larger than the slots", () => {
     const meta = newMeta();
     meta.relics = ["penny", "dice", "tooth"];
     meta.loadout = ["penny", "dice", "tooth"];
-    expect(modsFor(meta, []).startCoins).toBe(baseMods().startCoins + 1 + 5);
+    expect(modsFor(meta, "climb", []).startCoins).toBe(baseMods().startCoins + 1 + 5);
   });
 
   it("starts a run with the tickets of the key relics", () => {
     const meta = newMeta();
     meta.relics = ["key", "vault"];
-    meta.tech = ["purse1", "case1"];
+    meta.climb.tech = ["purse1", "case1"];
     meta.loadout = ["key", "vault"];
-    const m = modsFor(meta, []);
+    const m = modsFor(meta, "climb", []);
     expect(startRun(1, m).tickets).toBe(4);
   });
 
@@ -845,15 +845,15 @@ describe("run events", () => {
     chooseEvent(run, 0, mk);
     expect(run.coins).toBe(120);
     expect(run.charms).toContain("karma");
-    expect(modsFor(newMeta(), run.charms).slotWinMul).toBeCloseTo(0.9);
+    expect(modsFor(newMeta(), "climb", run.charms).slotWinMul).toBeCloseTo(0.9);
     const again = await at("suitcase", (r) => r.charms.push("karma"));
     expect(chooseEvent(again, 0, mk)).toBe(false);
   });
 
   it("debt raises the quota and haunting takes a turn, on top of what the run has", () => {
     const meta = newMeta();
-    expect(modsFor(meta, ["debt"]).quotaMul).toBeCloseTo(1.15);
-    expect(modsFor(meta, ["haunted"]).turns).toBe(modsFor(meta, []).turns - 1);
+    expect(modsFor(meta, "climb", ["debt"]).quotaMul).toBeCloseTo(1.15);
+    expect(modsFor(meta, "climb", ["haunted"]).turns).toBe(modsFor(meta, "climb", []).turns - 1);
   });
 
   it("the well gives a free uncommon or rare charm for 10 coins", async () => {
@@ -938,6 +938,6 @@ describe("event and loadout achievements", () => {
     meta.loadout = ["penny", "dice"];
     const run = startRun(1, baseMods());
     run.stats.events = 3;
-    expect(checkAchievements(meta, run).map((a) => a.id)).toEqual(expect.arrayContaining(["road3", "gear2"]));
+    expect(checkAchievements(meta, "climb", run).map((a) => a.id)).toEqual(expect.arrayContaining(["road3", "gear2"]));
   });
 });

@@ -14,12 +14,18 @@ export interface Mods {
   lineBonus: number;
   /** single cards may be held, not only rows and columns */
   singleHold: boolean;
-  /** the most lines (rows and columns) that may be held; 10 is no limit */
+  /** the most lines (rows and columns) that may be held; the tree raises it from 2 up to 5 (10 is no limit) */
   holdMax: number;
   /** free draws after the first: the player holds again, only the last draw pays */
   redraws: number;
   /** ranks that are not in the deck (2 to 14) */
   removedRanks: number[];
+  /** the kinds of card upgrade the player may buy in a run (rank-ups always; the tree unlocks the rest) */
+  cardKinds: string[];
+  /** multiplies the price of card upgrades */
+  cardCostMul: number;
+  /** Endless mode: automatic rounds per second (0: none) */
+  autoRate: number;
   quotaMul: number;
   /** share of the coins kept at round end that is paid as interest (capped) */
   interest: number;
@@ -40,9 +46,12 @@ export function baseMods(): Mods {
     handMul: Object.fromEntries(HAND_ORDER.map((r) => [r, 1])) as Record<HandRank, number>,
     lineBonus: 0,
     singleHold: false,
-    holdMax: 10,
+    holdMax: 2,
     redraws: 0,
     removedRanks: [],
+    cardKinds: ["rank"],
+    cardCostMul: 1,
+    autoRate: 0,
     quotaMul: 1,
     interest: 0,
     rerolls: 0,

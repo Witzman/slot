@@ -2,6 +2,7 @@ import { BOSSES, BOSS_EVERY, CHARMS, CURSES, RARITY_PRICE, RARITY_WEIGHT, UPGRAD
 import type { Mods } from "./mods";
 import { type Rng, int, makeRng, weighted } from "./rng";
 import { HAND_ORDER } from "./hands";
+import { type CardKind, cardUpgradeCost, applyCardUpgrade } from "./cards-shop";
 import { type CardUpgrade, type Deal, LINES, type RoundResult, deal, drawRound } from "./round";
 import { eventById, rollEvent } from "./events";
 import { type MissionState, drawMissions, updateMissions } from "./missions";
@@ -17,6 +18,9 @@ export interface RunStats {
   bestLines: number;
   /** the best hand made: 0 none, else the index in HAND_ORDER plus 1 */
   bestHand: number;
+  /** rounds that paid with at least one held row or column, and with held single cards */
+  heldWins: number;
+  singleWins: number;
   relics: number;
   maxCoins: number;
   bosses: number;
@@ -101,7 +105,7 @@ export function startRun(seed: number, m: Mods, stake = 0): Run {
     shop: [],
     shopRerolls: 0,
     rerollsLeft: m.rerolls,
-    stats: { spins: 0, slotWins: 0, bestSlotWin: 0, bestLines: 0, bestHand: 0, relics: 0, maxCoins: m.startCoins, bosses: 0, events: 0 },
+    stats: { spins: 0, slotWins: 0, bestSlotWin: 0, bestLines: 0, bestHand: 0, heldWins: 0, singleWins: 0, relics: 0, maxCoins: m.startCoins, bosses: 0, events: 0 },
     missions: [],
     chipsPending: 0,
     events: [],
@@ -306,6 +310,8 @@ export function drawHand(run: Run, m: Mods, hold: { rows: number[]; cols: number
   s.bestLines = Math.max(s.bestLines, res.lines.length);
   for (const l of res.lines) s.bestHand = Math.max(s.bestHand, HAND_ORDER.indexOf(l.rank) + 1);
   if (res.payout > s.bestSlotWin) s.bestSlotWin = res.payout;
+  if (res.payout > 0 && hold.rows.length + hold.cols.length > 0) s.heldWins++;
+  if (res.payout > 0 && hold.cells.length > 0) s.singleWins++;
   updateMissions(run);
   return res;
 }
@@ -367,11 +373,23 @@ export function restoreRun(raw: unknown): Run | null {
   const bossId = BOSSES.some((b) => b.id === o.boss) ? (o.boss as string) : null;
   const eventId = eventById(o.event ?? null) ? (o.event as string) : null;
   const st = o.stats as Partial<RunStats>;
-  const stats = { ...(o.stats as RunStats), events: Math.max(0, Math.floor(num0(st.events))), bosses: Math.max(0, Math.floor(num0(st.bosses))), bestLines: Math.max(0, Math.floor(num0(st.bestLines))), bestHand: Math.max(0, Math.floor(num0(st.bestHand))) };
+  const stats = { ...(o.stats as RunStats), events: Math.max(0, Math.floor(num0(st.events))), bosses: Math.max(0, Math.floor(num0(st.bosses))), heldWins: Math.max(0, Math.floor(num0(st.heldWins))), singleWins: Math.max(0, Math.floor(num0(st.singleWins))), bestLines: Math.max(0, Math.floor(num0(st.bestLines))), bestHand: Math.max(0, Math.floor(num0(st.bestHand))) };
   if (o.phase === "event" && !eventId) return null;
   if (!("hand" in o) || !("cardUpgrades" in o)) return null; // a run from before the cards
   const hand = restoreHand(o.hand);
   if (o.hand !== null && hand === null) return null;
   const cardUpgrades = restoreCardUpgrades(o.cardUpgrades);
   return { ...(o as Run), stake: Math.min(5, Math.max(0, Math.floor(num0(o.stake)))), boss: bossId, event: o.phase === "event" ? eventId : null, stats, tickets: Math.max(0, Math.floor(num0(o.tickets))), hand, cardUpgrades, shop, shopRerolls: Math.max(0, Math.floor(num0(o.shopRerolls))), upgrades, events: [], found: 0, finished: o.finished === true, overReason: o.overReason ?? "" };
+}
+
+/** Buy an upgrade on one card of the deck with coins, for this run. Not a turn. False when it is not allowed or not affordable. */
+export function buyCardUpgrade(run: Run, card: number, kind: CardKind, m: Mods): boolean {
+  if (run.phase !== "play" || !Number.isInteger(card) || card < 0 || card > 51 || !m.cardKinds.includes(kind)) return false;
+  const cost = cardUpgradeCost(run.cardUpgrades, kind, m.cardCostMul);
+  if (run.coins < cost) return false;
+  const next = applyCardUpgrade(run.cardUpgrades, card, kind);
+  if (next === null) return false;
+  run.coins -= cost;
+  run.cardUpgrades = next;
+  return true;
 }

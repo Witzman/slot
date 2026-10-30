@@ -1,4 +1,5 @@
-import { ACHIEVEMENTS, type Meta, relicSlots } from "../game/meta";
+import { ACHIEVEMENTS, type Meta, type ModeId, relicSlots } from "../game/meta";
+import { CARD_KINDS, CARD_KIND_LABEL, CARD_KIND_TEXT, type CardKind, applyCardUpgrade, cardUpgradeCost } from "../game/cards-shop";
 import { BOSSES, CHARMS, CURSES, RELICS, RELIC_PERKS, TECH, UPGRADES, upgradeCost } from "../game/content";
 import { eventById } from "../game/events";
 import type { Mods } from "../game/mods";
@@ -27,9 +28,13 @@ export interface UI {
   craftNote: string;
   /** stake picked for the next run */
   stake: number;
+  /** the kind of card upgrade the card shop is selling */
+  cardKind: CardKind;
 }
 
 export interface View {
+  /** the mode on screen: its chips and its tree */
+  mode: ModeId;
   run: Run | null;
   meta: Meta;
   mods: Mods;
@@ -56,7 +61,7 @@ export function hud(v: View): string {
            <div class="stat"><span>Tickets</span><strong>${r.tickets}</strong></div>`
         : `<div class="stat wide"><span>No run in progress</span></div>`
     }
-    <div class="stat"><span>Chips</span><strong class="teal">${v.meta.chips}</strong></div>
+    <div class="stat"><span>Chips</span><strong class="teal">${v.meta[v.mode].chips}</strong></div>
     <button class="icon" data-act="mute" title="Toggle sound">${v.ui.muted ? "Unmute" : "Mute"}</button>`;
 }
 
@@ -123,7 +128,7 @@ export function slotPanel(v: View): string {
       <div class="cards">${cells.join("")}</div>
       <p class="note">${esc(ui.slotNote) || help}</p>
       ${betRow("slotbet", ui.slotBet, mods.slotMaxBet, !playing || open)}
-      ${open ? `<button class="big" data-act="draw">DRAW <small>${kept.size === 0 ? "hold nothing: draw all 25" : `keeping ${kept.size} cards`}${drawsLeft > 1 ? ` · draw ${hand?.draws !== undefined ? hand.draws + 1 : 1} of ${hand?.maxDraws ?? 1}` : ""}</small></button>` : `<button class="big" data-act="deal" ${canDeal ? "" : "disabled"}>DEAL <small>${why || `${cost} coins · 1 turn`}</small></button>`}
+      ${open ? `<button class="big" data-act="draw">DRAW <small>${kept.size === 0 ? "hold nothing: draw all 25" : `keeping ${kept.size} cards`} · lines ${ui.holdRows.size + ui.holdCols.size}/${mods.holdMax}${drawsLeft > 1 ? ` · draw ${hand?.draws !== undefined ? hand.draws + 1 : 1} of ${hand?.maxDraws ?? 1}` : ""}</small></button>` : `<button class="big" data-act="deal" ${canDeal ? "" : "disabled"}>DEAL <small>${why || `${cost} coins · 1 turn`}</small></button>`}
       <details class="paytable"><summary>Pay table (bet ${ui.slotBet})</summary>
         <ul class="list">${pays}</ul>
         <p class="hint">Pairs below jacks pay nothing. A card in a row and a column scores in both.</p>
@@ -153,18 +158,44 @@ export function shopPanel(v: View): string {
   }).join("");
   return `<section class="tree"><h2>Upgrade shop</h2>
     <p class="note">${run && run.phase !== "over" ? "Spend coins on upgrades that last for this run. Buying costs no turn." : "Start a run to buy upgrades."}</p>
-    <div class="branches one">${rows}</div></section>`;
+    <div class="branches one">${rows}</div>${cardShop(v)}</section>`;
+}
+
+/** Upgrades on single cards: pick a kind, then a card of the deck. */
+function cardShop(v: View): string {
+  const { run, mods, ui } = v;
+  const ups = run?.cardUpgrades ?? {};
+  const kinds = CARD_KINDS.filter((k) => mods.cardKinds.includes(k));
+  const kind = kinds.includes(ui.cardKind) ? ui.cardKind : "rank";
+  const cost = cardUpgradeCost(ups, kind, mods.cardCostMul);
+  const live = run !== null && run.phase === "play";
+  const kindBtns = kinds.map((k) => `<button class="${k === kind ? "active" : ""}" data-act="cardkind" data-v="${k}">${CARD_KIND_LABEL[k]}</button>`).join("");
+  const suits = [0, 1, 2, 3].map((suit) => {
+    const cards = Array.from({ length: 13 }, (_, i) => {
+      const card = suit * 13 + i;
+      const u = ups[card];
+      const can = live && run.coins >= cost && applyCardUpgrade(ups, card, kind) !== null && !mods.removedRanks.includes(rankOf(card));
+      const marks = [u?.joker ? "★" : "", u?.gold ? "$" : "", u?.rank ? `+${u.rank}` : "", u?.anySuit ? "◆" : ""].join("");
+      const r = rankOf(card);
+      return `<button class="pick ${suit === 1 || suit === 2 ? "red" : ""}${marks ? " has" : ""}" data-act="cardbuy" data-v="${card}" ${can ? "" : "disabled"} title="${r}${SUIT_GLYPH[suit]}">${RANK_LABEL[r] ?? r}${SUIT_GLYPH[suit]}<em>${marks}</em></button>`;
+    }).join("");
+    return `<div class="pickrow">${cards}</div>`;
+  }).join("");
+  return `<h3>Card upgrades</h3>
+    <p class="hint">${esc(CARD_KIND_TEXT[kind])} Next one costs <strong class="gold">${cost}</strong> coins; each upgrade you buy makes the next dearer.${kinds.length < CARD_KINDS.length ? " The tree unlocks more kinds (Cards branch)." : ""}</p>
+    <div class="kinds">${kindBtns}</div><div class="picker">${suits}</div>`;
 }
 
 export function treePanel(v: View): string {
   const { meta, run } = v;
+  const tree = meta[v.mode];
   const locked = run !== null && run.phase !== "over";
   const cols = (Object.keys(BRANCH_NAME) as (keyof typeof BRANCH_NAME)[]).map((b) => {
-    const nodes = TECH.filter((t) => t.branch === b).map((t) => {
-      const owned = meta.tech.includes(t.id);
-      const open = t.requires.every((r) => meta.tech.includes(r));
-      const afford = meta.chips >= t.cost;
-      const need = t.requires.filter((r) => !meta.tech.includes(r)).map((r) => TECH.find((x) => x.id === r)?.name ?? r);
+    const nodes = TECH.filter((t) => t.branch === b && (t.modes === undefined || t.modes.includes(v.mode))).map((t) => {
+      const owned = tree.tech.includes(t.id);
+      const open = t.requires.every((r) => tree.tech.includes(r));
+      const afford = tree.chips >= t.cost;
+      const need = t.requires.filter((r) => !tree.tech.includes(r)).map((r) => TECH.find((x) => x.id === r)?.name ?? r);
       const state = owned ? "owned" : open ? (afford && !locked ? "ready" : "open") : "locked";
       return `<button class="node ${state}" data-act="buy" data-v="${t.id}" ${state === "ready" ? "" : "disabled"}>
         <strong>${esc(t.name)}</strong><span>${esc(t.text)}</span>
@@ -251,7 +282,7 @@ export function overlay(v: View): string {
   if (run.phase === "over") {
     const why = run.overReason === "bust" ? "You ran out of coins." : `You missed the quota of ${run.quota} with ${run.coins} coins.`;
     return `<div class="modal"><div class="card-box"><h2>Run over</h2><p>${why}</p>
-      <p>Rounds cleared: <strong>${run.completed}</strong> · chips earned: <strong class="teal">+${ui.overChips}</strong> (total ${meta.chips})</p>
+      <p>Rounds cleared: <strong>${run.completed}</strong> · chips earned: <strong class="teal">+${ui.overChips}</strong> (total ${meta[v.mode].chips})</p>
       ${stakePicker(v)}<div class="row"><button data-act="tab" data-v="tree">Tech tree</button><button class="big" data-act="newrun">New run</button></div></div></div>`;
   }
   return "";
