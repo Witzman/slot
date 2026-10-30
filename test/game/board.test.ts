@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CLUSTER_PAY, MAX_CASCADE, SCATTER_FREE_SPINS, clusterPay, type SpinParams, findClusters, spinBoard } from "../../src/game/board";
+import { CLUSTER_PAY, MAX_CASCADE, MAX_FREE_SPINS, SCATTER_FREE_SPINS, clusterPay, type SpinParams, findClusters, spinBoard } from "../../src/game/board";
 import { makeRng } from "../../src/game/rng";
 import { BASE_WEIGHTS, SYMS, type Sym } from "../../src/game/slot";
 
@@ -93,6 +93,7 @@ describe("spinBoard", () => {
     const res = spinBoard(makeRng(6), { rows: 3, cols: 3 }, 1, params({ weights: only("coin") }));
     expect(res.freeSpins).toBe(SCATTER_FREE_SPINS(9));
     expect(SCATTER_FREE_SPINS(3)).toBe(1);
+    expect(SCATTER_FREE_SPINS(36)).toBe(MAX_FREE_SPINS);
     expect(SCATTER_FREE_SPINS(2)).toBe(0);
   });
 

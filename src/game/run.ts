@@ -285,6 +285,7 @@ export function spinSlot(run: Run, m: Mods, bet: number): Refusal | SpinResult {
   }
   const res = spinBoard(run.rng, { rows: m.rows, cols: m.cols }, bet, { weights: m.weights, symPay: m.symPay, chainStart: m.chainStart, chainStep: m.chainStep, chainCap: m.chainCap, globalMul: m.slotWinMul });
   gain(run, res.payout);
+  if (free) res.freeSpins = 0; // a free spin never wins more free spins
   run.freeSpins += res.freeSpins;
   const s = run.stats;
   s.spins++;

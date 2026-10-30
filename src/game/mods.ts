@@ -34,7 +34,7 @@ export interface Mods {
 export function baseMods(): Mods {
   return {
     startCoins: 50,
-    turns: 12,
+    turns: 24,
     rows: 3,
     cols: 3,
     chainStep: 0.25,

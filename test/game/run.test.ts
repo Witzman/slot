@@ -30,7 +30,7 @@ function drive(run: Run, m = baseMods()): void {
 describe("a run", () => {
   it("starts with the coins, turns and quota of its round", () => {
     const run = startRun(1, baseMods());
-    expect([run.coins, run.turnsLeft, run.quota, run.round, run.phase]).toEqual([50, 12, 14, 1, "play"]);
+    expect([run.coins, run.turnsLeft, run.quota, run.round, run.phase]).toEqual([50, baseMods().turns, 14, 1, "play"]);
     expect(run.missions).toHaveLength(3);
   });
 
@@ -40,7 +40,7 @@ describe("a run", () => {
     expect(typeof res).toBe("object");
     if (typeof res === "string") return;
     expect(run.coins).toBe(50 - 2 + res.payout);
-    expect(run.turnsLeft).toBe(11);
+    expect(run.turnsLeft).toBe(baseMods().turns - 1);
     expect(run.stats.spins).toBe(1);
   });
 
@@ -51,7 +51,7 @@ describe("a run", () => {
     expect(spinSlot(run, m, 0)).toBe("bad-bet");
     run.coins = 0;
     expect(spinSlot(run, m, 1)).toBe("no-coins");
-    expect([run.coins, run.turnsLeft]).toEqual([0, 12]);
+    expect([run.coins, run.turnsLeft]).toEqual([0, baseMods().turns]);
     run.coins = 10;
     run.turnsLeft = 0;
     expect(spinSlot(run, m, 1)).toBe("no-turns");
@@ -161,7 +161,7 @@ describe("a run", () => {
     const run = startRun(2, baseMods());
     run.turnsLeft = 0;
     beginRound(run, baseMods);
-    expect(run.turnsLeft).toBe(12);
+    expect(run.turnsLeft).toBe(baseMods().turns);
   });
 });
 
@@ -396,6 +396,16 @@ describe("charm shop and tickets", () => {
     expect(run.draft).toHaveLength(3);
     expect(run.shop).toHaveLength(4);
     expect(new Set([...run.draft, ...run.shop]).size).toBe(7);
+  });
+
+  it("a free spin never wins more free spins, so scatters cannot chain for ever", () => {
+    const w = baseMods();
+    w.weights = { ...w.weights, cherry: 0, lemon: 0, plum: 0, grape: 0, bell: 0, bar: 0, seven: 0, wild: 0, coin: 1 };
+    const run = startRun(2, w);
+    run.freeSpins = 1;
+    spinSlot(run, w, 1);
+    expect(run.freeSpins).toBe(0);
+    expect(run.stats.scatters).toBe(0);
   });
 
   it("gives a ticket for a mission", () => {

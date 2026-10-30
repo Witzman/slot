@@ -52,7 +52,9 @@ export const AREA_EXP = 0.5;
 /** Pay of one cluster of `size` cells, times the bet (before chain, symbol and board factors). */
 export const clusterPay = (sym: PaySym, size: number): number => CLUSTER_PAY[sym] * (size - 2);
 
-export const SCATTER_FREE_SPINS = (coins: number): number => (coins >= SCATTER_MIN ? coins - SCATTER_MIN + 1 : 0);
+/** Free spins one scatter win gives at most, and none of them can win more (balance run #10: with the tree's coin nodes on a 6x6 board free spins chained for ever). */
+export const MAX_FREE_SPINS = 10;
+export const SCATTER_FREE_SPINS = (coins: number): number => (coins >= SCATTER_MIN ? Math.min(MAX_FREE_SPINS, coins - SCATTER_MIN + 1) : 0);
 
 const NEAR: readonly (readonly [number, number])[] = [[-1, 0], [1, 0], [0, -1], [0, 1]];
 
