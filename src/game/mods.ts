@@ -44,6 +44,12 @@ export interface Mods {
   wildRanks: number[];
   /** bets paid for each pair of neighbouring cards of one rank (across and down); 0: none */
   adjacency: number;
+  /** cells (0..24) whose card counts as gold, whatever the card is */
+  goldCells: number[];
+  /** cards hidden at the hold of each deal: shown only by the draw, a held one pays its lines more */
+  mystery: number;
+  /** nudges a round has: shift a row or a column one cell before the draw */
+  nudges: number;
 }
 
 export function baseMods(): Mods {
@@ -70,10 +76,13 @@ export function baseMods(): Mods {
     colHold: true,
     wildRanks: [],
     adjacency: 0,
+    goldCells: [],
+    mystery: 0,
+    nudges: 0,
   };
 }
 
 export type Effect = (m: Mods) => void;
 
 /** What the scoring reads from the mods of a round. `deadLines` are lines that pay nothing (a lockout boss adds its line). */
-export const scoreMods = (m: Mods, deadLines: readonly number[] = m.deadLines): ScoreMods => ({ handMul: m.handMul, globalMul: m.slotWinMul, lineBonus: m.lineBonus, deadLines, wildRanks: m.wildRanks, adjacency: m.adjacency });
+export const scoreMods = (m: Mods, deadLines: readonly number[] = m.deadLines): ScoreMods => ({ handMul: m.handMul, globalMul: m.slotWinMul, lineBonus: m.lineBonus, deadLines, wildRanks: m.wildRanks, adjacency: m.adjacency, goldCells: m.goldCells });

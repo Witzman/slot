@@ -367,7 +367,7 @@ export function dealRound(run: Run, m: Mods, bet: number): Refusal | Deal {
   if (bet * LINES > run.coins) return "no-coins";
   run.coins -= bet * LINES;
   run.turnsLeft--;
-  run.hand = deal(run.rng, bet, m.removedRanks, m.redraws);
+  run.hand = deal(run.rng, bet, m.removedRanks, m.redraws, m.mystery, m.nudges);
   return run.hand;
 }
 
@@ -406,7 +406,9 @@ export function restoreHand(raw: unknown): Deal | null {
   const h = raw as Partial<Deal>;
   const ok = Array.isArray(h.board) && h.board.length === 25 && h.board.every((c) => Number.isInteger(c) && c >= 0 && c < 52) && new Set(h.board).size === 25;
   if (!ok || (h.phase !== "hold" && h.phase !== "done") || !Number.isInteger(h.bet) || (h.bet as number) < 1 || !Number.isInteger(h.draws) || !Number.isInteger(h.maxDraws) || (h.maxDraws as number) < 1) return null;
-  return { board: [...(h.board as number[])], bet: h.bet as number, phase: h.phase, draws: h.draws as number, maxDraws: h.maxDraws as number };
+  const cell = (x: unknown): x is number => Number.isInteger(x) && (x as number) >= 0 && (x as number) < 25;
+  const mystery = Array.isArray(h.mystery) ? [...new Set(h.mystery.filter(cell))].sort((a, b) => a - b) : [];
+  return { board: [...(h.board as number[])], bet: h.bet as number, phase: h.phase, draws: h.draws as number, maxDraws: h.maxDraws as number, mystery, hidden: h.hidden === true && mystery.length > 0 && h.draws === 0, nudges: Number.isInteger(h.nudges) && (h.nudges as number) > 0 ? Math.min(9, h.nudges as number) : 0 };
 }
 
 export function restoreCardUpgrades(raw: unknown): Record<number, CardUpgrade> {

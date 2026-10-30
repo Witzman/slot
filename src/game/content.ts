@@ -32,6 +32,10 @@ export const TECH: readonly TechNode[] = [
   // hold: a round starts with at most two held lines, the tree widens that and adds single cards and free draws
   { id: "hold3", branch: "hold", name: "Third Hold", text: "Hold up to 3 lines.", cost: 6, requires: [], effect: (m) => void (m.holdMax = Math.max(m.holdMax, 3)) },
   { id: "hold4", branch: "hold", name: "Fourth Hold", text: "Hold up to 4 lines.", cost: 12, requires: ["hold3"], effect: (m) => void (m.holdMax = Math.max(m.holdMax, 4)) },
+  { id: "mystery1", branch: "hold", name: "Mystery Card", text: "One card of each deal is dealt face down. Hold it unseen and every hand it is in pays x1.5.", cost: 14, requires: ["hold3"], effect: (m) => void (m.mystery += 1) },
+  { id: "mystery2", branch: "hold", name: "Two Mysteries", text: "A second card is dealt face down.", cost: 22, requires: ["mystery1"], effect: (m) => void (m.mystery += 1) },
+  { id: "nudge1", branch: "hold", name: "Nudge", text: "Once a round, shift a row one cell right or a column one cell down before the draw.", cost: 12, requires: ["hold3"], effect: (m) => void (m.nudges += 1) },
+  { id: "nudge2", branch: "hold", name: "Second Nudge", text: "One more nudge a round.", cost: 20, requires: ["nudge1"], effect: (m) => void (m.nudges += 1) },
   { id: "hold5", branch: "hold", name: "Fifth Hold", text: "Hold up to 5 lines.", cost: 20, requires: ["hold4"], effect: (m) => void (m.holdMax = Math.max(m.holdMax, 5)) },
   { id: "single", branch: "hold", name: "Single Hold", text: "Hold single cards, not only rows and columns.", cost: 10, requires: ["hold3"], effect: (m) => void (m.singleHold = true) },
   { id: "redraw1", branch: "hold", name: "Second Draw", text: "A free second draw: hold again, only the last draw pays.", cost: 16, requires: ["single"], effect: (m) => void (m.redraws += 1) },
@@ -83,6 +87,8 @@ const noRanks = (...r: number[]): Effect => (m) => void r.forEach((x) => m.remov
 /** Run charms: one free pick of three after each round (the phone call), the rest bought with tickets; gone when the run ends. */
 export const CHARMS: readonly Charm[] = [
   // hands
+  ch("corners", "Corner Shop", "uncommon", "The four corner cards count as gold.", (m) => void m.goldCells.push(0, 4, 20, 24)),
+  ch("centre", "Centre Stage", "common", "The centre card counts as gold.", (m) => void m.goldCells.push(12)),
   ch("sharp", "Card Sharp", "common", "Jacks or better and two pair pay 50% more.", hands(1.5, "jacks", "twoPair")),
   ch("threes", "Three's Company", "common", "Three of a kind pays 50% more.", hands(1.5, "three")),
   ch("runner", "Straight Shooter", "common", "Straights pay 50% more.", hands(1.5, "straight")),

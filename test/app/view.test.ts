@@ -4,7 +4,7 @@ import { buyTech, modsFor, newMeta } from "../../src/game/meta";
 import { dealRound, startRun } from "../../src/game/run";
 import { type UI, type View, hud, overlay, shopPanel, slotPanel, startScreen } from "../../src/app/view";
 
-const ui = (over: Partial<UI> = {}): UI => ({ screen: "game", tab: "play", slotBet: 1, holdRows: new Set(), holdCols: new Set(), holdCells: new Set(), result: null, slotNote: "", overChips: 0, muted: false, picked: [], craftNote: "", stake: 0, setup: "classic", today: 20000, cardKind: "rank", ...over });
+const ui = (over: Partial<UI> = {}): UI => ({ screen: "game", tab: "play", slotBet: 1, holdRows: new Set(), holdCols: new Set(), holdCells: new Set(), result: null, slotNote: "", overChips: 0, muted: false, picked: [], craftNote: "", stake: 0, setup: "classic", today: 20000, nudge: false, cardKind: "rank", ...over });
 const climb = (over: Partial<View> = {}): View => {
   const meta = newMeta();
   const mods = modsFor(meta, "climb", []);
@@ -205,5 +205,46 @@ describe("loan and hand levels on screen", () => {
     const html = shopPanel(climb({ meta, mods, run: startRun(1, mods) }));
     expect(html).toContain("Flush level");
     expect(html).toContain("Royal flush level");
+  });
+});
+
+describe("grid tactics on screen", () => {
+  const withHand = (over: Record<string, unknown>) => {
+    const meta = newMeta();
+    const mods = modsFor(meta, "climb", []);
+    const run = startRun(1, mods);
+    dealRound(run, mods, 1);
+    Object.assign(run.hand as object, over);
+    return climb({ run, mods, meta });
+  };
+
+  it("shows a face-down card as a question mark that does not give the card away", () => {
+    const v = withHand({ mystery: [3], hidden: true });
+    const html = slotPanel(v);
+    expect(html).toMatch(/class="pc back mystery"[^>]*><span>\?<\/span>/);
+    expect(html).toContain("Face-down cards");
+    const cell = html.match(/<button class="pc back mystery"[^>]*>.*?<\/button>/)?.[0] ?? "";
+    expect(cell).not.toMatch(/[♠♥♦♣]/);
+  });
+
+  it("shows the card again after the draw", () => {
+    expect(slotPanel(withHand({ mystery: [3], hidden: false }))).not.toContain("pc back mystery");
+  });
+
+  it("offers a nudge toggle, and nudge buttons instead of holds while it is on", () => {
+    const off = slotPanel(withHand({ nudges: 1 }));
+    expect(off).toContain('data-act="nudgemode"');
+    expect(off).toContain("(1 left)");
+    expect(off).not.toContain('data-act="nudgerow"');
+    const v = withHand({ nudges: 1 });
+    v.ui.nudge = true;
+    const on = slotPanel(v);
+    expect((on.match(/data-act="nudgerow"/g) ?? []).length).toBe(5);
+    expect((on.match(/data-act="nudgecol"/g) ?? []).length).toBe(5);
+    expect(on).not.toContain('data-act="holdrow"');
+  });
+
+  it("offers no nudge without one", () => {
+    expect(slotPanel(withHand({ nudges: 0 }))).not.toContain("nudgemode");
   });
 });

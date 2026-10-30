@@ -34,6 +34,8 @@ export interface UI {
   craftNote: string;
   /** stake picked for the next run */
   stake: number;
+  /** the row and column buttons nudge instead of hold */
+  nudge: boolean;
   /** start deck or challenge picked for the next run */
   setup: string;
   /** today, in days since 1970: the daily run is of this day */
@@ -120,6 +122,7 @@ export function cardMarks(u: CardUpgrade | undefined): string {
 function cardHtml(t: Table, cell: number, held: boolean, fresh: boolean, clickable: boolean, dead = false): string {
   const board = t.hand?.board;
   if (!board) return `<div class="pc back"></div>`;
+  if (t.hand?.hidden && (t.hand.mystery ?? []).includes(cell)) return `<button class="pc back mystery${held ? " held" : ""}" data-act="holdcell" data-v="${cell}" ${clickable ? "" : "disabled"} aria-label="Face-down card"><span>?</span></button>`;
   const card = board[cell] as number;
   const u = t.cardUpgrades[card];
   const rank = Math.min(14, rankOf(card) + (u?.rank ?? 0));
@@ -143,10 +146,11 @@ export function slotPanel(v: View): string {
     const l = lineOf(line);
     return l ? `<span class="badge" title="${HAND_LABEL[l.rank]}">${HAND_LABEL[l.rank]} <b>+${Math.round(l.pay)}</b></span>` : `<span class="badge none"></span>`;
   };
+  const nudging = open && ui.nudge && (hand?.nudges ?? 0) > 0 && hand?.draws === 0;
   const locked = v.mode === "climb" && v.run ? v.run.lockedLine : -1;
   const deadCells = new Set(locked >= 0 ? lineCells(locked) : []);
-  const rowBtn = (r: number): string => `<button class="line${ui.holdRows.has(r) ? " on" : ""}${locked === r ? " locked" : ""}" data-act="holdrow" data-v="${r}" ${open ? "" : "disabled"} aria-label="Hold row ${r + 1}${locked === r ? " (locked: pays nothing)" : ""}">${ui.holdRows.has(r) ? "HOLD" : locked === r ? "LOCK" : "R" + (r + 1)}</button>`;
-  const colBtn = (c: number): string => `<button class="line${ui.holdCols.has(c) ? " on" : ""}${locked === SIZE + c ? " locked" : ""}" data-act="holdcol" data-v="${c}" ${open && mods.colHold ? "" : "disabled"} aria-label="Hold column ${c + 1}${locked === SIZE + c ? " (locked: pays nothing)" : ""}${mods.colHold ? "" : " (not allowed this round)"}">${ui.holdCols.has(c) ? "HOLD" : !mods.colHold ? "—" : locked === SIZE + c ? "LOCK" : "C" + (c + 1)}</button>`;
+  const rowBtn = (r: number): string => nudging ? `<button class="line nudge" data-act="nudgerow" data-v="${r}" aria-label="Shift row ${r + 1} one cell right">▶</button>` : `<button class="line${ui.holdRows.has(r) ? " on" : ""}${locked === r ? " locked" : ""}" data-act="holdrow" data-v="${r}" ${open ? "" : "disabled"} aria-label="Hold row ${r + 1}${locked === r ? " (locked: pays nothing)" : ""}">${ui.holdRows.has(r) ? "HOLD" : locked === r ? "LOCK" : "R" + (r + 1)}</button>`;
+  const colBtn = (c: number): string => nudging ? `<button class="line nudge" data-act="nudgecol" data-v="${c}" aria-label="Shift column ${c + 1} one cell down">▼</button>` : `<button class="line${ui.holdCols.has(c) ? " on" : ""}${locked === SIZE + c ? " locked" : ""}" data-act="holdcol" data-v="${c}" ${open && mods.colHold ? "" : "disabled"} aria-label="Hold column ${c + 1}${locked === SIZE + c ? " (locked: pays nothing)" : ""}${mods.colHold ? "" : " (not allowed this round)"}">${ui.holdCols.has(c) ? "HOLD" : !mods.colHold ? "—" : locked === SIZE + c ? "LOCK" : "C" + (c + 1)}</button>`;
   const cells: string[] = ['<span></span>', ...Array.from({ length: SIZE }, (_, c) => colBtn(c)), '<span></span>'];
   for (let r = 0; r < SIZE; r++) {
     cells.push(rowBtn(r));
@@ -164,13 +168,14 @@ export function slotPanel(v: View): string {
   const drawsLeft = hand ? hand.maxDraws - hand.draws : 0;
   const pays = HAND_ORDER.map((r) => `<li><span>${HAND_LABEL[r]}</span><b>${Math.round(BASE_PAY[r] * mods.handMul[r] * ui.slotBet)}</b></li>`).reverse().join("");
   const help = open
-    ? `Hold rows or columns${mods.singleHold ? " or single cards" : ""} you want to keep, then draw.${drawsLeft > 1 ? ` ${drawsLeft} draws: only the last one pays.` : " Only this draw pays."}`
+    ? `Hold rows or columns${mods.singleHold ? " or single cards" : ""} you want to keep, then draw.${hand?.hidden ? " Face-down cards: held, every hand they are in pays x1.5." : ""}${drawsLeft > 1 ? ` ${drawsLeft} draws: only the last one pays.` : " Only this draw pays."}`
     : "Deal 25 cards. Every row and every column is a poker hand; all hands add up.";
   return `
     <section class="machine slot">
       <h2>Cards <small>10 hands</small></h2>
       <div class="cards">${cells.join("")}</div>
       <p class="note">${esc(ui.slotNote) || help}</p>
+      ${open && (hand?.nudges ?? 0) > 0 && hand?.draws === 0 ? `<button data-act="nudgemode" class="${ui.nudge ? "active" : ""}">Nudge: ${ui.nudge ? "shifting, tap a line" : "off"} (${hand?.nudges} left)</button>` : ""}
       ${betRow("slotbet", ui.slotBet, mods.slotMaxBet, !playing || open)}
       ${open ? `<button class="big" data-act="draw">DRAW <small>${kept.size === 0 ? "hold nothing: draw all 25" : `keeping ${kept.size} cards`} · lines ${ui.holdRows.size + ui.holdCols.size}/${mods.holdMax}${drawsLeft > 1 ? ` · draw ${hand?.draws !== undefined ? hand.draws + 1 : 1} of ${hand?.maxDraws ?? 1}` : ""}</small></button>` : `<button class="big" data-act="deal" ${canDeal ? "" : "disabled"}>DEAL <small>${why || (broke ? "wallet empty: a free base round" : v.mode === "endless" ? `${cost} coins` : `${cost} coins · 1 turn`)}</small></button>`}
       <details class="paytable"><summary>Pay table (bet ${ui.slotBet})</summary>

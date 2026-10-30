@@ -55,7 +55,8 @@ export function smartHold(run: HoldState, m: Mods): Hold {
   if (!d || m.holdMax === 0) return NONE;
   const board = d.board;
   const drawsLeft = d.maxDraws - d.draws;
-  const ranked = Array.from({ length: LINES }, (_, l) => l).filter((l) => m.colHold || l < SIZE).sort((a, b) => potential(board, b, run.cardUpgrades) - potential(board, a, run.cardUpgrades)).slice(0, 4);
+  const unseen = d.hidden ? (d.mystery ?? []) : [];
+  const ranked = Array.from({ length: LINES }, (_, l) => l).filter((l) => (m.colHold || l < SIZE) && !lineCells(l).some((i) => unseen.includes(i))).sort((a, b) => potential(board, b, run.cardUpgrades) - potential(board, a, run.cardUpgrades)).slice(0, 4);
   let held: number[] = [];
   let best = expected(run, m, board, NONE, 6, drawsLeft);
   while (held.length < Math.min(m.holdMax, 4)) {

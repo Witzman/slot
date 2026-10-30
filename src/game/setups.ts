@@ -65,11 +65,11 @@ export const SETUPS: readonly Setup[] = [
     id: "thin",
     name: "Thin Air",
     kind: "challenge",
-    text: "The twos to sixes are gone. Quota x3. Pay 21 quotas.",
+    text: "The twos to sixes are gone. Quota x3. Pay 22 quotas.",
     lock: "Finish a run.",
     unlocked: (m) => m.runs >= 1,
     seed: 1101,
-    goal: 21,
+    goal: 22,
     effect: (m) => void (([2, 3, 4, 5, 6] as const).forEach((r) => m.removedRanks.includes(r) || m.removedRanks.push(r)), (m.quotaMul *= 3)),
   },
   {
