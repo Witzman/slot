@@ -13,7 +13,7 @@ export const LINE_PAY: Record<"cherry" | "lemon" | "bell" | "bar" | "seven", num
 };
 /** Cherry in the first two cells pays this even without a third. */
 export const CHERRY_PAIR = 1;
-/** Free coin drops for the pusher when this many scatters are on the grid. */
+/** Three or more coin scatters on the grid give a ticket. */
 export const SCATTER_MIN = 3;
 
 export const BASE_WEIGHTS: Record<Sym, number> = { cherry: 7, lemon: 6, bell: 4, bar: 3, seven: 2, wild: 10, coin: 2 };
@@ -44,7 +44,7 @@ export interface SlotResult {
   wins: LineWin[];
   /** coins paid, before any run bonus */
   payout: number;
-  /** free pusher drops from scatters */
+  /** number of coin scatters when there are enough for a ticket, else 0 */
   freeDrops: number;
 }
 

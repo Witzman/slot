@@ -2,8 +2,7 @@ import { ACHIEVEMENTS, type Meta, relicSlots } from "../game/meta";
 import { BOSSES, CHARMS, CURSES, RELICS, RELIC_PERKS, TECH, UPGRADES, upgradeCost } from "../game/content";
 import { eventById } from "../game/events";
 import type { Mods } from "../game/mods";
-import { HAND_LABEL, HAND_ORDER, type HandName, classify, rank, suit } from "../game/poker";
-import { type Run, ZONE_HEAT, canClose, charmPrice, quotaFor, shopRerollPrice, zoneMul } from "../game/run";
+import { type Run, canClose, charmPrice, quotaFor, shopRerollPrice } from "../game/run";
 import { missionDef, missionProgress } from "../game/missions";
 import { COLS, LINES, ROWS, type Sym } from "../game/slot";
 
@@ -12,14 +11,11 @@ export type Tab = "play" | "shop" | "tree" | "book";
 export interface UI {
   tab: Tab;
   slotBet: number;
-  pokerBet: number;
   /** reels are turning: the screen holds back round and run results until they stop */
   busy: boolean;
   grid: Sym[][];
   winCells: Set<string>;
   slotNote: string;
-  pokerNote: string;
-  pusherNote: string;
   overChips: number;
   muted: boolean;
   /** relics picked for combining (at most two) */
@@ -48,9 +44,7 @@ export const GLYPH: Record<Sym, string> = {
   coin: svg('<circle cx="24" cy="24" r="19" fill="#ffd84a" stroke="#a87400" stroke-width="3"/><circle cx="24" cy="24" r="12" fill="none" stroke="#b98500" stroke-width="2"/><text x="24" y="30" font-size="16" font-weight="900" text-anchor="middle" fill="#a87400">$</text>'),
 };
 
-const SUITS = ["♠", "♥", "♦", "♣"];
-const RANKS: Record<number, string> = { 11: "J", 12: "Q", 13: "K", 14: "A" };
-const BRANCH_NAME = { run: "Run", slot: "Slot", poker: "Poker", pusher: "Pusher" } as const;
+const BRANCH_NAME = { run: "Run", slot: "Slot" } as const;
 
 const esc = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] as string);
 
@@ -67,7 +61,6 @@ export function hud(v: View): string {
         ? `<div class="stat"><span>Coins</span><strong class="gold">${r.coins}</strong></div>
            <div class="stat"><span>Round</span><strong>${r.round}</strong></div>
            <div class="stat wide"><span>Quota ${quota} <em>(${pct}%)</em></span><div class="bar"><div style="width:${pct}%"></div></div><div class="pips" title="turns left">${turns}</div></div>
-           <div class="stat"><span>Free drops</span><strong>${r.freeDrops}</strong></div>
            <div class="stat"><span>Tickets</span><strong>${r.tickets}</strong></div>`
         : `<div class="stat wide"><span>No run in progress</span></div>`
     }
@@ -96,13 +89,13 @@ export function slotPanel(v: View): string {
       cells.push(`<div class="cell s-${sym}${ui.winCells.has(`${r},${c}`) ? " win" : ""}" data-col="${c}">${GLYPH[sym]}</div>`);
     }
   }
-  const canSpin = live && run !== null && run.poker.phase === "bet" && run.turnsLeft > 0 && run.coins >= cost;
-  const why = !run || run.phase !== "play" ? "" : run.poker.phase === "hold" ? "Draw your free hand first." : run.turnsLeft <= 0 ? "No turns left: let the shelf run, then close the round." : run.coins < cost ? "Not enough coins." : "";
+  const canSpin = live && run !== null && run.turnsLeft > 0 && run.coins >= cost;
+  const why = !run || run.phase !== "play" ? "" : run.turnsLeft <= 0 ? "No turns left: close the round." : run.coins < cost ? "Not enough coins." : "";
   return `
     <section class="machine slot">
-      <h2>1 · Reels</h2>
+      <h2>Reels</h2>
       <div class="reels">${cells.join("")}</div>
-      <p class="note">${esc(ui.slotNote) || "Wins pour onto the pusher shelf. The star is wild. Three coin symbols give free drops."}</p>
+      <p class="note">${esc(ui.slotNote) || "The star is wild. Three coin symbols give a ticket."}</p>
       ${betRow("slotbet", ui.slotBet, mods.slotMaxBet, !live)}
       <button class="big" data-act="spin" ${canSpin ? "" : "disabled"}>PULL <small>${why || `${cost} coins · ${lines} line${lines > 1 ? "s" : ""} · 1 turn`}</small></button>
       <details class="paytable"><summary>Pay table</summary>
@@ -117,42 +110,12 @@ function lineKey(lines: number): string {
   return `<p class="hint">Paylines: ${names.slice(0, Math.min(lines, LINES.length)).join(", ")}</p>`;
 }
 
-function cardHtml(card: number, held: boolean, hold: boolean, i: number): string {
-  const rk = rank(card);
-  const red = suit(card) === 1 || suit(card) === 2;
-  return `<button class="card${red ? " red" : ""}${held ? " held" : ""}" data-act="hold" data-v="${i}" ${hold ? "" : "disabled"}><span>${RANKS[rk] ?? rk}</span><span>${SUITS[suit(card)]}</span>${held ? "<em>HELD</em>" : ""}</button>`;
-}
-
-export function pokerPanel(v: View): string {
-  const { run, mods, ui } = v;
-  const p = run?.poker;
-  const phase = p?.phase ?? "bet";
-  const live = run !== null && run.phase === "play" && !ui.busy;
-  const made: HandName | null = p && p.hand.length === 5 ? classify(p.hand) : null;
-  const bet = p && p.hand.length === 5 ? p.bet : 1;
-  const cards = p && p.hand.length === 5 ? p.hand.map((c, i) => cardHtml(c, p.held[i] === true && phase === "hold", phase === "hold" && live, i)).join("") : `<div class="empty">Every pull deals a free hand</div>`;
-  const rows = HAND_ORDER.map((h) => `<li class="${made === h ? "now" : ""}"><span>${HAND_LABEL[h]}</span><b>${Math.round(mods.pokerPay[h] * bet * mods.pokerMul)}</b></li>`).join("");
-  return `
-    <section class="machine poker">
-      <h2>2 · Free hand</h2>
-      <div class="hand">${cards}</div>
-      <p class="note">${esc(ui.pokerNote) || (phase === "hold" ? `Tap cards to hold, then draw${p && p.draws > 1 ? " (two draws)" : ""}. Stake ${bet}.` : "Wins pour onto the shelf too.")}</p>
-      <button class="big" data-act="draw" ${phase === "hold" && live ? "" : "disabled"}>DRAW</button>
-      <ul class="paytable list">${rows}</ul>
-    </section>`;
-}
-
-export function pusherPanelInfo(v: View): string {
-  const { run, ui, mods } = v;
-  const live = run !== null && run.phase === "play";
+export function roundPanel(v: View): string {
+  const { run, mods } = v;
   const close = run !== null && canClose(run, mods);
   const boss = run?.boss ? BOSSES.find((b) => b.id === run.boss) : undefined;
   const bossLine = boss ? `<p class="boss"><strong>BOSS · ${esc(boss.name)}</strong> ${esc(boss.text)}</p>` : "";
-  const hint = !live || !run ? "Start a run to play" : `${run.pusher.coins.length} on the shelf · ${run.pour.length} coming · ${run.freeDrops} free drops · tap to drop (1 turn)`;
-  const zone = run ? `Zone ${run.zone} (x${zoneMul(run, mods).toFixed(1)}${run.zone < mods.zoneMax ? `, heat ${run.zoneHeat}/${ZONE_HEAT[run.zone - 1] ?? 0}` : ", max"})` : "";
-  return `${bossLine}<p class="note">${esc(ui.pusherNote) || "3 · Pusher: your wins land here. Only coins pushed off the front count as yours."}</p>
-    <p class="hint">${zone ? `<strong class="gold">${zone}</strong> · ` : ""}${hint}</p>
-    ${close && run ? `<button class="big" data-act="close">CLOSE ROUND <small>pay quota ${run.quota} · you have ${run.coins}</small></button>` : ""}`;
+  return `${bossLine}${close && run ? `<button class="big" data-act="close">CLOSE ROUND <small>pay quota ${run.quota} · you have ${run.coins}</small></button>` : ""}`;
 }
 
 export function shopPanel(v: View): string {
@@ -220,7 +183,7 @@ export function bookPanel(v: View): string {
   return `<section class="book"><h2>Book</h2>
     <div class="cols">
       <div><h3>Missions this run</h3><ul class="plain">${missions}</ul><h3>Charms this run</h3><ul class="plain">${charms}</ul>
-        <h3>Career</h3><p class="hint">${meta.runs} runs · best round ${meta.bestRound} · stake ${meta.maxStake} unlocked · ${meta.life.spins} spins · ${meta.life.hands} hands · ${meta.life.drops} drops · ${meta.life.pusherPaid} coins from the pusher</p></div>
+        <h3>Career</h3><p class="hint">${meta.runs} runs · best round ${meta.bestRound} · stake ${meta.maxStake} unlocked · ${meta.life.spins} spins</p></div>
       <div><h3>Achievements ${meta.ach.length}/${ACHIEVEMENTS.length}</h3><ul class="plain">${ach}</ul></div>
       <div><h3>Relics ${meta.relics.length}/${RELICS.length} <small>(+1 start coin per 2)</small></h3><p class="hint">Equipped ${meta.loadout.length}/${relicSlots(meta)} — perks apply to the next run${noRun ? "" : " (locked during a run)"}.</p>${craft}<div class="relics">${relics}</div></div>
     </div></section>`;
@@ -239,8 +202,8 @@ export function overlay(v: View): string {
   if (!run) {
     return `<div class="modal"><div class="card-box title">
       <h1>SLOT<b>·</b>ROGUE</h1>
-      <p>Slots, video poker and a coin pusher in one run. Win coins on any machine, pay the quota when your turns run out, pick a charm, go deeper. Lose the run, earn chips, grow the tech tree.</p>
-      <p class="hint">Each spin, hand or coin drop is one turn.</p>
+      <p>Spin the reels, pay the quota when your turns run out, pick a charm, go deeper. Lose the run, earn chips, grow the tech tree.</p>
+      <p class="hint">Each spin is one turn.</p>
       ${stakePicker(v)}<button class="big" data-act="newrun">Start run</button></div></div>`;
   }
   if (run.phase === "event") {

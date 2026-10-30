@@ -1,14 +1,12 @@
 import "./style.css";
 import { type Meta, buyTech, combine, toggleEquip, checkAchievements, fileRelic, finishRun, modsFor } from "../game/meta";
 import { RELICS, CHARMS } from "../game/content";
-import { HAND_LABEL } from "../game/poker";
-import { type Run, type Refusal, buyCharm, buyUpgrade, chooseEvent, closeRound, drainEvents, drawPoker, dropAt, holdCard, pickCharm, rerollDraft, rerollShop, spinSlot, startRun, tickPusher } from "../game/run";
+import { type Run, type Refusal, buyCharm, buyUpgrade, chooseEvent, closeRound, drainEvents, pickCharm, rerollDraft, rerollShop, spinSlot, startRun } from "../game/run";
 import { type Sym, SYMS, COLS, ROWS } from "../game/slot";
 import { localStore } from "../storage";
-import { createPusherCanvas } from "./pusher-view";
 import { loadMeta, loadRun, save } from "./save";
 import { isMuted, setMuted, sfx, unlock } from "./sfx";
-import { GLYPH, type Tab, type UI, type View, bookPanel, hud, nav, overlay, pokerPanel, pusherPanelInfo, shopPanel, slotPanel, treePanel } from "./view";
+import { GLYPH, type Tab, type UI, type View, bookPanel, hud, nav, overlay, roundPanel, shopPanel, slotPanel, treePanel } from "./view";
 
 const store = localStore();
 const $ = (id: string): HTMLElement => {
@@ -20,7 +18,6 @@ const $ = (id: string): HTMLElement => {
 const REFUSAL: Record<Refusal, string> = {
   "not-playing": "No run in progress.",
   "no-turns": "No turns left this round.",
-  busy: "Finish the poker hand first.",
   "no-coins": "Not enough coins.",
   "bad-bet": "That bet is not allowed.",
 };
@@ -30,21 +27,18 @@ const START_GRID: Sym[][] = [["cherry", "bell", "lemon"], ["bar", "seven", "bar"
 async function boot(): Promise<void> {
   let meta: Meta = await loadMeta(store);
   let run: Run | null = await loadRun(store);
-  const ui: UI = { tab: "play", slotBet: 1, pokerBet: 1, busy: false, grid: START_GRID, winCells: new Set(), slotNote: "", pokerNote: "", pusherNote: "", overChips: 0, muted: false, picked: [], craftNote: "", stake: 0 };
+  const ui: UI = { tab: "play", slotBet: 1, busy: false, grid: START_GRID, winCells: new Set(), slotNote: "", overChips: 0, muted: false, picked: [], craftNote: "", stake: 0 };
   const mk = (charms: string[]) => modsFor(meta, charms, run?.upgrades ?? {}, run?.boss ?? null, run?.stake ?? 0);
   const mods = () => mk(run?.charms ?? []);
   const view = (): View => ({ run, meta, mods: mods(), ui });
-  let aim = 5;
   let lastPhase = run?.phase ?? "over";
 
-  const pc = createPusherCanvas($("pc") as HTMLCanvasElement);
   const hudEl = $("hud");
   const navEl = $("nav");
   const panelEl = $("panel");
   const cabinetEl = $("cabinet");
   const slotEl = $("slotbox");
-  const pokerEl = $("pokerbox");
-  const pinfoEl = $("pinfo");
+  const roundEl = $("roundbox");
   const overlayEl = $("overlay");
 
   function toast(text: string): void {
@@ -72,11 +66,9 @@ async function boot(): Promise<void> {
     panelEl.hidden = onPlay;
     if (onPlay) {
       slotEl.innerHTML = slotPanel(v);
-      pokerEl.innerHTML = pokerPanel(v);
-      pinfoEl.innerHTML = pusherPanelInfo(v);
+      roundEl.innerHTML = roundPanel(v);
     } else panelEl.innerHTML = { play: () => "", shop: shopPanel, tree: treePanel, book: bookPanel }[ui.tab](v);
     overlayEl.innerHTML = overlay(v);
-    if (onPlay) pc.resize();
   }
 
   /** after anything changed the game: file prizes, show messages, unlock, close the run, save, draw */
@@ -94,7 +86,6 @@ async function boot(): Promise<void> {
       }
       for (const e of drainEvents(run)) {
         toast(e);
-        if (e.startsWith("Zone ")) sfx.gold();
         if (e.startsWith("BOSS")) sfx.lose();
       }
       if (run.phase === "over" && !run.finished) {
@@ -118,7 +109,7 @@ async function boot(): Promise<void> {
     ui.stake = Math.min(ui.stake, meta.maxStake);
     run = startRun(seed, modsFor(meta, [], {}, null, ui.stake), ui.stake);
     lastPhase = "play";
-    ui.slotNote = ui.pokerNote = ui.pusherNote = "";
+    ui.slotNote = "";
     ui.winCells = new Set();
     ui.grid = START_GRID;
     ui.tab = "play";
@@ -156,22 +147,12 @@ async function boot(): Promise<void> {
       ui.grid = final.map((row) => [...row]);
       ui.busy = false;
       ui.winCells = new Set(res.wins.flatMap((w) => w.cells.map(([r, c]) => `${r},${c}`)));
-      const extra = res.freeDrops > 0 ? ` · ${res.freeDrops} free drops!` : "";
+      const extra = res.freeDrops > 0 ? " · +1 ticket!" : "";
       ui.slotNote = res.payout > 0 ? `Won ${res.payout} coins${extra}` : `No win${extra}`;
       if (res.payout >= ui.slotBet * 20) sfx.big();
       else if (res.payout > 0 || res.freeDrops > 0) sfx.win();
       changed();
     }, 70);
-  }
-
-  function dropAction(x: number): void {
-    if (!run) return;
-    const res = dropAt(run, mods(), x);
-    if (res in REFUSAL) toast(REFUSAL[res as Refusal]);
-    else {
-      sfx.click();
-      changed();
-    }
   }
 
   function act(name: string, value: string): void {
@@ -221,23 +202,6 @@ async function boot(): Promise<void> {
           changed();
         }
         break;
-      case "hold":
-        if (run) holdCard(run, Number(value));
-        sfx.click();
-        render();
-        break;
-      case "draw": {
-        if (!run) break;
-        const r = drawPoker(run, mods());
-        if (!r) break;
-        sfx.card();
-        if (r.done) {
-          ui.pokerNote = r.name ? `${HAND_LABEL[r.name]}! +${r.pay} coins` : "No win";
-          if (r.pay > 0) (r.pay >= 6 ? sfx.big : sfx.win)();
-        }
-        changed();
-        break;
-      }
       case "charm":
         if (run && pickCharm(run, value, mk)) {
           toast(`Charm: ${CHARMS.find((c) => c.id === value)?.name ?? value}`);
@@ -309,51 +273,8 @@ async function boot(): Promise<void> {
     if (t && !(t as HTMLButtonElement).disabled) act(t.dataset.act ?? "", t.dataset.v ?? "");
   });
 
-  const canvas = $("pc");
-  canvas.addEventListener("pointermove", (e) => void (aim = pc.xAt(e.clientX)));
-  canvas.addEventListener("pointerdown", (e) => {
-    unlock();
-    aim = pc.xAt(e.clientX);
-    dropAction(aim);
-  });
-  addEventListener("keydown", (e) => {
-    if (ui.tab !== "play") return;
-    if (e.key === "ArrowLeft") aim = Math.max(0, aim - 0.5);
-    else if (e.key === "ArrowRight") aim = Math.min(10, aim + 0.5);
-    else if (e.key === " " || e.key === "Enter") {
-      e.preventDefault();
-      unlock();
-      dropAction(aim);
-    }
-  });
-  addEventListener("resize", () => ui.tab === "play" && pc.resize());
   addEventListener("pagehide", () => persist(true));
   document.addEventListener("visibilitychange", () => document.hidden && persist(true));
-
-  // the pusher runs in real time while its tab is open and a round is on
-  let last = performance.now();
-  let acc = 0;
-  function frame(now: number): void {
-    acc += Math.min(100, now - last);
-    last = now;
-    if (ui.tab === "play" && run) {
-      const live = run.phase === "play" && !document.hidden && !ui.busy;
-      if (live) {
-        const steps = Math.floor(acc / (1000 / 60));
-        acc -= steps * (1000 / 60);
-        if (steps > 0) {
-          const paid = tickPusher(run, mods(), steps);
-          if (paid > 0) {
-            sfx.coin();
-            changed();
-          }
-        }
-      } else acc = 0;
-      pc.draw(run.pusher, aim, live, run.zone);
-    } else acc = 0;
-    requestAnimationFrame(frame);
-  }
-  requestAnimationFrame(frame);
 
   changed(); // a loaded run that was over still pays its chips once
   render();
