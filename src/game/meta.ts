@@ -28,7 +28,7 @@ const num = (x: unknown, d = 0): number => (typeof x === "number" && Number.isFi
 const ids = (x: unknown, known: readonly string[]): string[] => (Array.isArray(x) ? [...new Set(x.filter((v): v is string => typeof v === "string" && known.includes(v)))] : []);
 
 /** Chips the removed pusher and poker tech nodes cost (#10): a saved meta that owns one gets the chips back. */
-export const REMOVED_TECH_COST: Readonly<Record<string, number>> = { pbet: 4, pfull: 7, ptwo: 9, pdraw: 18, gold1: 4, prize1: 6, free1: 8, zone4: 12, zone5: 20, pmul: 15 };
+export const REMOVED_TECH_COST: Readonly<Record<string, number>> = { lines3: 4, lines5: 10, pbet: 4, pfull: 7, ptwo: 9, pdraw: 18, gold1: 4, prize1: 6, free1: 8, zone4: 12, zone5: 20, pmul: 15 };
 
 const refund = (raw: unknown): number => (Array.isArray(raw) ? [...new Set(raw)].reduce<number>((sum, id) => sum + (typeof id === "string" && Object.hasOwn(REMOVED_TECH_COST, id) ? (REMOVED_TECH_COST[id] as number) : 0), 0) : 0);
 

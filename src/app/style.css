@@ -59,11 +59,11 @@ main { padding-top: 16px; }
 .bet { display: flex; align-items: center; gap: 12px; justify-content: center; }
 .bet span { min-width: 80px; text-align: center; }
 
-.reels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; background: #0b0614; padding: 10px; border-radius: 14px; border: 2px solid var(--gold); }
+.reels { display: grid; grid-template-columns: repeat(var(--cols, 3), 1fr); gap: 8px; background: #0b0614; padding: 10px; border-radius: 14px; border: 2px solid var(--gold); }
 .cell svg { display: block; }
-.cell { aspect-ratio: 1; display: grid; place-items: center; font-size: clamp(2rem, 10vw, 3.4rem); background: linear-gradient(180deg, #f7f2ff, #cfc2ee); color: #2a1450; border-radius: 10px; font-weight: 900; }
-.cell.s-bar { font-size: clamp(1.2rem, 6vw, 1.9rem); letter-spacing: 0.1em; }
-.cell.s-seven { color: var(--red); font-size: clamp(2.4rem, 12vw, 4rem); }
+.cell { aspect-ratio: 1; display: grid; place-items: center; font-size: calc(clamp(2rem, 10vw, 3.4rem) * 3 / max(var(--cols, 3), 3)); background: linear-gradient(180deg, #f7f2ff, #cfc2ee); color: #2a1450; border-radius: 10px; font-weight: 900; }
+.cell.s-bar { font-size: calc(clamp(1.2rem, 6vw, 1.9rem) * 3 / max(var(--cols, 3), 3)); letter-spacing: 0.1em; }
+.cell.s-seven { color: var(--red); font-size: calc(clamp(2.4rem, 12vw, 4rem) * 3 / max(var(--cols, 3), 3)); }
 .cell.win { background: linear-gradient(180deg, #fff3b8, var(--gold)); animation: pulse 0.6s ease-in-out infinite alternate; }
 @keyframes pulse { to { transform: scale(1.06); } }
 .paytable { margin-top: 10px; color: var(--dim); font-size: 0.9rem; }
