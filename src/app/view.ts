@@ -1,4 +1,4 @@
-import { ACHIEVEMENTS, type Meta, relicSlots } from "../game/meta";
+import { ACHIEVEMENTS, type Meta, type ModeId, relicSlots } from "../game/meta";
 import { BOSSES, CHARMS, CURSES, RELICS, RELIC_PERKS, TECH, UPGRADES, upgradeCost } from "../game/content";
 import { eventById } from "../game/events";
 import type { Mods } from "../game/mods";
@@ -29,6 +29,8 @@ export interface UI {
 }
 
 export interface View {
+  /** the mode on screen: its chips and its tree */
+  mode: ModeId;
   run: Run | null;
   meta: Meta;
   mods: Mods;
@@ -70,7 +72,7 @@ export function hud(v: View): string {
            <div class="stat"><span>Tickets</span><strong>${r.tickets}</strong></div>`
         : `<div class="stat wide"><span>No run in progress</span></div>`
     }
-    <div class="stat"><span>Chips</span><strong class="teal">${v.meta.chips}</strong></div>
+    <div class="stat"><span>Chips</span><strong class="teal">${v.meta[v.mode].chips}</strong></div>
     <button class="icon" data-act="mute" title="Toggle sound">${v.ui.muted ? "Unmute" : "Mute"}</button>`;
 }
 
@@ -142,13 +144,14 @@ export function shopPanel(v: View): string {
 
 export function treePanel(v: View): string {
   const { meta, run } = v;
+  const tree = meta[v.mode];
   const locked = run !== null && run.phase !== "over";
   const cols = (Object.keys(BRANCH_NAME) as (keyof typeof BRANCH_NAME)[]).map((b) => {
     const nodes = TECH.filter((t) => t.branch === b).map((t) => {
-      const owned = meta.tech.includes(t.id);
-      const open = t.requires.every((r) => meta.tech.includes(r));
-      const afford = meta.chips >= t.cost;
-      const need = t.requires.filter((r) => !meta.tech.includes(r)).map((r) => TECH.find((x) => x.id === r)?.name ?? r);
+      const owned = tree.tech.includes(t.id);
+      const open = t.requires.every((r) => tree.tech.includes(r));
+      const afford = tree.chips >= t.cost;
+      const need = t.requires.filter((r) => !tree.tech.includes(r)).map((r) => TECH.find((x) => x.id === r)?.name ?? r);
       const state = owned ? "owned" : open ? (afford && !locked ? "ready" : "open") : "locked";
       return `<button class="node ${state}" data-act="buy" data-v="${t.id}" ${state === "ready" ? "" : "disabled"}>
         <strong>${esc(t.name)}</strong><span>${esc(t.text)}</span>
@@ -236,7 +239,7 @@ export function overlay(v: View): string {
   if (run.phase === "over") {
     const why = run.overReason === "bust" ? "You ran out of coins." : `You missed the quota of ${run.quota} with ${run.coins} coins.`;
     return `<div class="modal"><div class="card-box"><h2>Run over</h2><p>${why}</p>
-      <p>Rounds cleared: <strong>${run.completed}</strong> · chips earned: <strong class="teal">+${ui.overChips}</strong> (total ${meta.chips})</p>
+      <p>Rounds cleared: <strong>${run.completed}</strong> · chips earned: <strong class="teal">+${ui.overChips}</strong> (total ${meta[v.mode].chips})</p>
       ${stakePicker(v)}<div class="row"><button data-act="tab" data-v="tree">Tech tree</button><button class="big" data-act="newrun">New run</button></div></div></div>`;
   }
   return "";

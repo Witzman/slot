@@ -3,11 +3,31 @@ import { type Mods, baseMods } from "./mods";
 import type { Run } from "./run";
 import { type Rng, weighted } from "./rng";
 
-/** What survives between runs. */
-export interface Meta {
-  v: 1;
+export type ModeId = "climb" | "endless";
+export const MODES: readonly ModeId[] = ["climb", "endless"];
+
+/** What the owner compares the two modes by: how often, how long, how it ended. */
+export interface ModeStats {
+  sessions: number;
+  /** milliseconds played, added by the app (the game layer reads no clock) */
+  playMs: number;
+  spins: number;
+  /** how sessions ended, by name (a climb run: quota or bust; an endless session: prestige) */
+  endings: Record<string, number>;
+}
+
+/** Chips and tree progress of one mode: the two modes never share them. */
+export interface ModeMeta {
   chips: number;
   tech: string[];
+  stats: ModeStats;
+}
+
+/** What survives between runs. */
+export interface Meta {
+  v: 2;
+  climb: ModeMeta;
+  endless: ModeMeta;
   relics: string[];
   ach: string[];
   runs: number;
@@ -20,8 +40,10 @@ export interface Meta {
   loadout: string[];
 }
 
+const newMode = (): ModeMeta => ({ chips: 0, tech: [], stats: { sessions: 0, playMs: 0, spins: 0, endings: {} } });
+
 export function newMeta(): Meta {
-  return { v: 1, chips: 0, tech: [], relics: [], ach: [], runs: 0, bestRound: 1, life: { spins: 0 }, seedCounter: 1, maxStake: 0, loadout: [] };
+  return { v: 2, climb: newMode(), endless: newMode(), relics: [], ach: [], runs: 0, bestRound: 1, life: { spins: 0 }, seedCounter: 1, maxStake: 0, loadout: [] };
 }
 
 const num = (x: unknown, d = 0): number => (typeof x === "number" && Number.isFinite(x) && x >= 0 ? Math.floor(x) : d);
@@ -36,19 +58,32 @@ const refund = (raw: unknown, kept: readonly string[]): number =>
     ? [...new Set(raw)].reduce<number>((sum, id) => (typeof id !== "string" || kept.includes(id) ? sum : sum + (TECH.find((t) => t.id === id)?.cost ?? (Object.hasOwn(REMOVED_TECH_COST, id) ? (REMOVED_TECH_COST[id] as number) : 0))), 0)
     : 0;
 
-/** Storage is untrusted: anything unreadable becomes a fresh meta, unknown ids are dropped. */
+const record = (x: unknown): Record<string, unknown> => (typeof x === "object" && x !== null && !Array.isArray(x) ? (x as Record<string, unknown>) : {});
+
+/** One mode out of untrusted storage: unknown ids dropped, nodes without their prerequisites dropped and refunded. */
+function restoreMode(raw: unknown): ModeMeta {
+  const o = record(raw);
+  const tech = ids(o.tech, TECH.map((t) => t.id)).filter((id, _, all) => (TECH.find((t) => t.id === id)?.requires ?? []).every((r) => all.includes(r)));
+  const st = record(o.stats);
+  const endings: Record<string, number> = {};
+  for (const [k, n] of Object.entries(record(st.endings))) if (k !== "__proto__" && num(n) > 0) endings[k] = num(n);
+  return { chips: num(o.chips) + refund(o.tech, tech), tech, stats: { sessions: num(st.sessions), playMs: num(st.playMs), spins: num(st.spins), endings } };
+}
+
+/** Storage is untrusted: anything unreadable becomes a fresh meta, unknown ids are dropped. A v1 meta (one chip balance, one tree) becomes the climb mode. */
 export function restoreMeta(raw: unknown): Meta {
   if (typeof raw !== "object" || raw === null) return newMeta();
   const o = raw as Record<string, unknown>;
-  if (o.v !== 1) return newMeta();
-  const life = (typeof o.life === "object" && o.life !== null ? o.life : {}) as Record<string, unknown>;
-  const tech = ids(o.tech, TECH.map((t) => t.id)).filter((id, _, all) => (TECH.find((t) => t.id === id)?.requires ?? []).every((r) => all.includes(r)));
+  if (o.v !== 1 && o.v !== 2) return newMeta();
+  const life = record(o.life);
+  const climb = restoreMode(o.v === 1 ? { chips: o.chips, tech: o.tech } : o.climb);
+  const endless = o.v === 1 ? newMode() : restoreMode(o.endless);
   const owned = ids(o.relics, RELICS.map((r) => r.id));
-  const slots = BASE_RELIC_SLOTS + tech.filter((t) => t === "case1" || t === "case2").length;
+  const slots = BASE_RELIC_SLOTS + caseCount(climb.tech, endless.tech);
   return {
-    v: 1,
-    chips: num(o.chips) + refund(o.tech, tech),
-    tech,
+    v: 2,
+    climb,
+    endless,
     relics: owned,
     ach: ids(o.ach, ACH_IDS),
     runs: num(o.runs),
@@ -60,7 +95,10 @@ export function restoreMeta(raw: unknown): Meta {
   };
 }
 
-export const relicSlots = (meta: Meta): number => BASE_RELIC_SLOTS + meta.tech.filter((t) => t === "case1" || t === "case2").length;
+/** Display cases owned in either mode (the relic loadout is shared, so the better of the two counts). */
+const caseCount = (...trees: string[][]): number => Math.max(...trees.map((t) => t.filter((id) => id === "case1" || id === "case2").length));
+
+export const relicSlots = (meta: Meta): number => BASE_RELIC_SLOTS + caseCount(meta.climb.tech, meta.endless.tech);
 
 /** Equip or unequip an owned relic. A full loadout refuses a new one. */
 export function toggleEquip(meta: Meta, id: string): boolean {
@@ -75,9 +113,9 @@ export function toggleEquip(meta: Meta, id: string): boolean {
   return true;
 }
 
-export function modsFor(meta: Meta, charms: readonly string[], upgrades: Readonly<Record<string, number>> = {}, boss: string | null = null, stake = 0): Mods {
+export function modsFor(meta: Meta, mode: ModeId, charms: readonly string[], upgrades: Readonly<Record<string, number>> = {}, boss: string | null = null, stake = 0): Mods {
   const m = baseMods();
-  for (const id of meta.tech) TECH.find((t) => t.id === id)?.effect(m);
+  for (const id of meta[mode].tech) TECH.find((t) => t.id === id)?.effect(m);
   m.startCoins += Math.floor(meta.relics.length / 2); // the collection pays: 1 coin per 2 relics
   for (const id of meta.loadout.slice(0, relicSlots(meta))) RELIC_PERKS[id]?.effect(m);
   for (const id of charms) (CHARMS.find((c) => c.id === id) ?? CURSES.find((c) => c.id === id))?.effect(m);
@@ -88,16 +126,22 @@ export function modsFor(meta: Meta, charms: readonly string[], upgrades: Readonl
   return m;
 }
 
-export function canBuy(meta: Meta, id: string): boolean {
+export function canBuy(meta: Meta, mode: ModeId, id: string): boolean {
   const node = TECH.find((t) => t.id === id);
-  return !!node && !meta.tech.includes(id) && meta.chips >= node.cost && node.requires.every((r) => meta.tech.includes(r));
+  const m = meta[mode];
+  return !!node && !m.tech.includes(id) && m.chips >= node.cost && node.requires.every((r) => m.tech.includes(r));
 }
 
-export function buyTech(meta: Meta, id: string): boolean {
-  if (!canBuy(meta, id)) return false;
-  meta.chips -= (TECH.find((t) => t.id === id) as { cost: number }).cost;
-  meta.tech.push(id);
+export function buyTech(meta: Meta, mode: ModeId, id: string): boolean {
+  if (!canBuy(meta, mode, id)) return false;
+  meta[mode].chips -= (TECH.find((t) => t.id === id) as { cost: number }).cost;
+  meta[mode].tech.push(id);
   return true;
+}
+
+/** Play time of a mode, in milliseconds, measured by the app. Junk (negative, NaN) adds nothing. */
+export function addPlayTime(meta: Meta, mode: ModeId, ms: number): void {
+  if (Number.isFinite(ms) && ms > 0) meta[mode].stats.playMs += Math.round(ms);
 }
 
 /** File a relic won from a boss: a new one when any is missing, else a duplicate (null). */
@@ -145,16 +189,16 @@ export const ACHIEVEMENTS: readonly Achievement[] = [
   { id: "stake3", name: "High Stakes Hero", text: "Unlock stake 3.", chips: 8, test: (m) => m.maxStake >= 3 },
   { id: "road3", name: "Road Warrior", text: "Face 3 events in one run.", chips: 4, test: (_, r) => (r?.stats.events ?? 0) >= 3 },
   { id: "gear2", name: "Dressed for the Job", text: "Equip 2 relics.", chips: 3, test: (m) => m.loadout.length >= 2 },
-  { id: "tech5", name: "Engineer", text: "Own 5 tech upgrades.", chips: 3, test: (m) => m.tech.length >= 5 },
+  { id: "tech5", name: "Engineer", text: "Own 5 tech upgrades in one mode.", chips: 3, test: (m) => Math.max(m.climb.tech.length, m.endless.tech.length) >= 5 },
 ];
 const ACH_IDS = ACHIEVEMENTS.map((a) => a.id);
 
-/** Unlocks what is now true; pays the chips. Returns the new achievements. */
-export function checkAchievements(meta: Meta, run: Run | null): Achievement[] {
+/** Unlocks what is now true; pays the chips to the mode being played. Returns the new achievements. */
+export function checkAchievements(meta: Meta, mode: ModeId, run: Run | null): Achievement[] {
   const fresh = ACHIEVEMENTS.filter((a) => !meta.ach.includes(a.id) && a.test(meta, run));
   for (const a of fresh) {
     meta.ach.push(a.id);
-    meta.chips += a.chips;
+    meta[mode].chips += a.chips;
   }
   return fresh;
 }
@@ -165,8 +209,13 @@ export function finishRun(meta: Meta, run: Run): number {
   run.finished = true;
   const chips = Math.floor((run.completed * 3 + 1 + run.chipsPending) * (1 + 0.25 * run.stake));
   if (run.stats.bosses >= 1 && run.stake === meta.maxStake && meta.maxStake < MAX_STAKE) meta.maxStake++;
-  meta.chips += chips;
+  meta.climb.chips += chips;
   meta.runs++;
+  const stats = meta.climb.stats;
+  stats.sessions++;
+  stats.spins += run.stats.spins;
+  const ending = run.overReason || "quit";
+  stats.endings[ending] = (stats.endings[ending] ?? 0) + 1;
   meta.bestRound = Math.max(meta.bestRound, run.round);
   meta.life.spins += run.stats.spins;
   return chips;

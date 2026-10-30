@@ -36,13 +36,13 @@ describe("the tech tree", () => {
 
   it("buying the board nodes in order grows the board to 6x6", () => {
     const meta = newMeta();
-    meta.chips = 1000;
-    expect([modsFor(meta, []).rows, modsFor(meta, []).cols]).toEqual([3, 3]);
-    expect(canBuy(meta, "cols4")).toBe(false);
-    for (const id of ["rows4", "cols4"]) expect(buyTech(meta, id), id).toBe(true);
-    expect([modsFor(meta, []).rows, modsFor(meta, []).cols]).toEqual([4, 4]);
-    for (const id of ["rows5", "cols5", "rows6", "cols6"]) expect(buyTech(meta, id), id).toBe(true);
-    expect([modsFor(meta, []).rows, modsFor(meta, []).cols]).toEqual([6, 6]);
+    meta.climb.chips = 1000;
+    expect([modsFor(meta, "climb", []).rows, modsFor(meta, "climb", []).cols]).toEqual([3, 3]);
+    expect(canBuy(meta, "climb", "cols4")).toBe(false);
+    for (const id of ["rows4", "cols4"]) expect(buyTech(meta, "climb", id), id).toBe(true);
+    expect([modsFor(meta, "climb", []).rows, modsFor(meta, "climb", []).cols]).toEqual([4, 4]);
+    for (const id of ["rows5", "cols5", "rows6", "cols6"]) expect(buyTech(meta, "climb", id), id).toBe(true);
+    expect([modsFor(meta, "climb", []).rows, modsFor(meta, "climb", []).cols]).toEqual([6, 6]);
   });
 
   it("no text speaks of paylines, the pusher or poker", () => {
@@ -51,9 +51,9 @@ describe("the tech tree", () => {
 
   it("the combo nodes change how a spin chains", () => {
     const meta = newMeta();
-    meta.chips = 1000;
-    for (const id of ["chain1", "chain2", "cap1", "opener"]) expect(buyTech(meta, id), id).toBe(true);
-    const m = modsFor(meta, []);
+    meta.climb.chips = 1000;
+    for (const id of ["chain1", "chain2", "cap1", "opener"]) expect(buyTech(meta, "climb", id), id).toBe(true);
+    const m = modsFor(meta, "climb", []);
     expect(m.chainStep).toBeGreaterThan(baseMods().chainStep);
     expect(m.chainCap).toBeGreaterThan(baseMods().chainCap);
     expect(m.chainStart).toBeGreaterThan(baseMods().chainStart);
@@ -61,23 +61,23 @@ describe("the tech tree", () => {
 
   it("a symbol node puts the diamond on the board", () => {
     const meta = newMeta();
-    meta.chips = 1000;
-    expect(modsFor(meta, []).weights.diamond).toBe(0);
-    for (const id of ["wild1", "diamond"]) buyTech(meta, id);
-    expect(modsFor(meta, []).weights.diamond).toBeGreaterThan(0);
+    meta.climb.chips = 1000;
+    expect(modsFor(meta, "climb", []).weights.diamond).toBe(0);
+    for (const id of ["wild1", "diamond"]) buyTech(meta, "climb", id);
+    expect(modsFor(meta, "climb", []).weights.diamond).toBeGreaterThan(0);
   });
 
   it("the auto-spin nodes give a spin rate, and nothing else does", () => {
     const meta = newMeta();
-    meta.chips = 1000;
-    expect(modsFor(meta, []).autoRate).toBe(0);
-    for (const id of ["purse1", "auto1", "auto2"]) buyTech(meta, id);
-    expect(modsFor(meta, []).autoRate).toBeGreaterThan(0);
+    meta.climb.chips = 1000;
+    expect(modsFor(meta, "climb", []).autoRate).toBe(0);
+    for (const id of ["purse1", "auto1", "auto2"]) buyTech(meta, "climb", id);
+    expect(modsFor(meta, "climb", []).autoRate).toBeGreaterThan(0);
   });
 
   it("a saved node whose prerequisite is gone is dropped and its chips come back", () => {
-    const meta = restoreMeta({ ...newMeta(), chips: 0, tech: ["cols5"] });
-    expect(meta.tech).toEqual([]);
-    expect(meta.chips).toBe(TECH.find((t) => t.id === "cols5")?.cost);
+    const meta = restoreMeta({ v: 1, chips: 0, tech: ["cols5"] });
+    expect(meta.climb.tech).toEqual([]);
+    expect(meta.climb.chips).toBe(TECH.find((t) => t.id === "cols5")?.cost);
   });
 });

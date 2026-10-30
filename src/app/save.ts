@@ -2,7 +2,9 @@ import { type Meta, newMeta, restoreMeta } from "../game/meta";
 import { type Run, restoreRun } from "../game/run";
 import type { Store } from "../storage";
 
-const META_KEY = "slot/meta/v1";
+const META_KEY = "slot/meta/v2";
+/** The meta before the two modes had their own chips and trees (#10): read once when there is no v2. */
+const OLD_META_KEY = "slot/meta/v1";
 const RUN_KEY = "slot/run/v1";
 
 function parse(text: string | null): unknown {
@@ -15,7 +17,8 @@ function parse(text: string | null): unknown {
 }
 
 export async function loadMeta(store: Store): Promise<Meta> {
-  return restoreMeta(parse(await store.get(META_KEY)));
+  const text = (await store.get(META_KEY)) ?? (await store.get(OLD_META_KEY));
+  return restoreMeta(parse(text));
 }
 
 export async function loadRun(store: Store): Promise<Run | null> {

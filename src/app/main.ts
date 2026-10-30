@@ -1,5 +1,5 @@
 import "./style.css";
-import { type Meta, buyTech, combine, toggleEquip, checkAchievements, fileRelic, finishRun, modsFor } from "../game/meta";
+import { type Meta, type ModeId, buyTech, combine, toggleEquip, checkAchievements, fileRelic, finishRun, modsFor } from "../game/meta";
 import { RELICS, CHARMS } from "../game/content";
 import type { SpinResult } from "../game/board";
 import { type Run, type Refusal, buyCharm, buyUpgrade, chooseEvent, closeRound, drainEvents, pickCharm, rerollDraft, rerollShop, spinSlot, startRun } from "../game/run";
@@ -26,15 +26,17 @@ const REFUSAL: Record<Refusal, string> = {
 /** A resting board of the given size, shown before the first spin and after the board grew. */
 const restGrid = (rows: number, cols: number): Sym[][] => Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => START_SYMS[(r * 2 + c * 3) % START_SYMS.length] as Sym));
 
+/** The only mode on screen until the start screen offers both (plan task 7). */
+const MODE: ModeId = "climb";
 const wait = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
 
 async function boot(): Promise<void> {
   let meta: Meta = await loadMeta(store);
   let run: Run | null = await loadRun(store);
   const ui: UI = { tab: "play", slotBet: 1, busy: false, grid: restGrid(3, 3), winCells: new Set(), slotNote: "", chain: 1, overChips: 0, muted: false, picked: [], craftNote: "", stake: 0 };
-  const mk = (charms: string[]) => modsFor(meta, charms, run?.upgrades ?? {}, run?.boss ?? null, run?.stake ?? 0);
+  const mk = (charms: string[]) => modsFor(meta, MODE, charms, run?.upgrades ?? {}, run?.boss ?? null, run?.stake ?? 0);
   const mods = () => mk(run?.charms ?? []);
-  const view = (): View => ({ run, meta, mods: mods(), ui });
+  const view = (): View => ({ mode: MODE, run, meta, mods: mods(), ui });
   let lastPhase = run?.phase ?? "over";
 
   const hudEl = $("hud");
@@ -85,7 +87,7 @@ async function boot(): Promise<void> {
           toast(`Relic found: ${RELICS.find((r) => r.id === id)?.name ?? id}`);
           sfx.big();
         } else {
-          meta.chips++;
+          meta[MODE].chips++;
           toast("A relic you already own: +1 chip");
         }
       }
@@ -100,7 +102,7 @@ async function boot(): Promise<void> {
       if ((run.phase === "draft" || run.phase === "event") && lastPhase !== run.phase) sfx.draft();
       lastPhase = run.phase;
     }
-    for (const a of checkAchievements(meta, run)) {
+    for (const a of checkAchievements(meta, MODE, run)) {
       toast(`Achievement: ${a.name} (+${a.chips} chips)`);
       sfx.win();
     }
@@ -112,7 +114,7 @@ async function boot(): Promise<void> {
   function newRun(): void {
     const seed = (Date.now() ^ Math.imul(meta.seedCounter++, 2654435761)) >>> 0;
     ui.stake = Math.min(ui.stake, meta.maxStake);
-    run = startRun(seed, modsFor(meta, [], {}, null, ui.stake), ui.stake);
+    run = startRun(seed, modsFor(meta, MODE, [], {}, null, ui.stake), ui.stake);
     lastPhase = "play";
     ui.slotNote = "";
     ui.winCells = new Set();
@@ -284,7 +286,7 @@ async function boot(): Promise<void> {
         }
         break;
       case "buy":
-        if (buyTech(meta, value)) {
+        if (buyTech(meta, MODE, value)) {
           sfx.win();
           changed();
         }
