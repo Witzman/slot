@@ -107,6 +107,15 @@ function tableOf(v: View): Table {
 const RANK_LABEL: Record<number, string> = { 11: "J", 12: "Q", 13: "K", 14: "A" };
 const SUIT_GLYPH = ["♠", "♥", "♦", "♣"];
 
+const EDITION_MARK = { foil: "F", holo: "H", poly: "P", negative: "N" } as const;
+const SEAL_MARK = { coin: "¢", red: "R" } as const;
+
+/** The small marks of the upgrades a card carries. */
+export function cardMarks(u: CardUpgrade | undefined): string {
+  if (!u) return "";
+  return [u.joker ? "★" : "", u.gold ? "$" : "", u.rank ? `+${u.rank}` : "", u.anySuit ? "◆" : "", u.glass ? "◇" : "", u.stone ? "▣" : "", u.edition ? EDITION_MARK[u.edition] : "", u.seal ? SEAL_MARK[u.seal] : ""].join("");
+}
+
 /** One card, with its marks: held, new from the draw, and the upgrades it carries. */
 function cardHtml(t: Table, cell: number, held: boolean, fresh: boolean, clickable: boolean, dead = false): string {
   const board = t.hand?.board;
@@ -115,9 +124,10 @@ function cardHtml(t: Table, cell: number, held: boolean, fresh: boolean, clickab
   const u = t.cardUpgrades[card];
   const rank = Math.min(14, rankOf(card) + (u?.rank ?? 0));
   const suit = suitOf(card);
-  const marks = [u?.joker ? "★" : "", u?.gold ? "$" : "", u?.rank ? `+${u.rank}` : "", u?.anySuit ? "◆" : ""].join("");
-  const face = u?.joker ? "★" : `${RANK_LABEL[rank] ?? rank}`;
-  return `<button class="pc ${suit === 1 || suit === 2 ? "red" : ""}${dead ? " dead" : ""}${held ? " held" : ""}${fresh ? " new" : ""}${u?.joker ? " joker" : ""}${u?.gold ? " gold" : ""}" data-act="holdcell" data-v="${cell}" ${clickable ? "" : "disabled"}><span>${face}</span><span>${u?.joker ? "" : SUIT_GLYPH[suit]}</span>${marks ? `<em>${marks}</em>` : ""}</button>`;
+  const marks = cardMarks(u);
+  const face = u?.stone ? "▣" : u?.joker ? "★" : `${RANK_LABEL[rank] ?? rank}`;
+  const look = `${u?.joker ? " joker" : ""}${u?.gold ? " gold" : ""}${u?.glass ? " glass" : ""}${u?.stone ? " stone" : ""}${u?.edition ? " ed-" + u.edition : ""}${u?.seal ? " seal-" + u.seal : ""}`;
+  return `<button class="pc ${suit === 1 || suit === 2 ? "red" : ""}${dead ? " dead" : ""}${held ? " held" : ""}${fresh ? " new" : ""}${look}" data-act="holdcell" data-v="${cell}" ${clickable ? "" : "disabled"}><span>${face}</span><span>${u?.joker || u?.stone ? "" : SUIT_GLYPH[suit]}</span>${marks ? `<em>${marks}</em>` : ""}</button>`;
 }
 
 export function slotPanel(v: View): string {
@@ -212,7 +222,7 @@ function cardShop(v: View): string {
       const card = suit * 13 + i;
       const u = ups[card];
       const can = live && t.coins >= cost && applyCardUpgrade(ups, card, kind) !== null && !mods.removedRanks.includes(rankOf(card));
-      const marks = [u?.joker ? "★" : "", u?.gold ? "$" : "", u?.rank ? `+${u.rank}` : "", u?.anySuit ? "◆" : ""].join("");
+      const marks = cardMarks(u);
       const r = rankOf(card);
       return `<button class="pick ${suit === 1 || suit === 2 ? "red" : ""}${marks ? " has" : ""}" data-act="cardbuy" data-v="${card}" ${can ? "" : "disabled"} title="${r}${SUIT_GLYPH[suit]}">${RANK_LABEL[r] ?? r}${SUIT_GLYPH[suit]}<em>${marks}</em></button>`;
     }).join("");

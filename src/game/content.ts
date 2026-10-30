@@ -43,6 +43,11 @@ export const TECH: readonly TechNode[] = [
   { id: "golds", branch: "cards", name: "Gold Leaf", text: "Cards can be gilded: every hand with a gold card pays 50% more.", cost: 10, requires: [], effect: (m) => void m.cardKinds.push("gold") },
   { id: "anysuit", branch: "cards", name: "Chameleon", text: "Cards can count as any suit.", cost: 12, requires: ["golds"], effect: (m) => void m.cardKinds.push("anySuit") },
   { id: "jokers", branch: "cards", name: "Joker Shop", text: "Cards can become jokers, the best card for any hand.", cost: 20, requires: ["golds"], effect: (m) => void m.cardKinds.push("joker") },
+  { id: "glass1", branch: "cards", name: "Glass Works", text: "Cards can be made of glass: lines with them pay x1.6, but they may shatter.", cost: 12, requires: ["golds"], effect: (m) => void m.cardKinds.push("glass") },
+  { id: "stone1", branch: "cards", name: "Quarry", text: "Cards can turn to stone: blanks that pay a flat sum in each of their lines.", cost: 12, requires: ["golds"], effect: (m) => void m.cardKinds.push("stone") },
+  { id: "editions", branch: "cards", name: "Print Shop", text: "Cards can get a foil or a holo edition.", cost: 16, requires: ["golds"], effect: (m) => void m.cardKinds.push("foil", "holo") },
+  { id: "polys", branch: "cards", name: "Prism", text: "Cards can get a polychrome or a negative edition.", cost: 24, requires: ["editions"], effect: (m) => void m.cardKinds.push("poly", "negative") },
+  { id: "seals", branch: "cards", name: "Wax Seals", text: "Cards can get a coin seal or a red seal.", cost: 20, requires: ["editions"], effect: (m) => void m.cardKinds.push("coin", "red") },
   { id: "cardcost", branch: "cards", name: "Card Discount", text: "Card upgrades cost 25% less.", cost: 14, requires: ["golds"], effect: (m) => void (m.cardCostMul *= 0.75) },
 
   // hands: what each kind of hand pays

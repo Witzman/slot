@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dealSession, endlessMods, startSession } from "../../src/game/endless";
-import { modsFor, newMeta } from "../../src/game/meta";
+import { buyTech, modsFor, newMeta } from "../../src/game/meta";
 import { dealRound, startRun } from "../../src/game/run";
 import { type UI, type View, hud, overlay, shopPanel, slotPanel, startScreen } from "../../src/app/view";
 
@@ -157,5 +157,30 @@ describe("run structure on screen", () => {
     expect(html).toContain("aria-label=\"Hold column 3 (locked: pays nothing)");
     expect((html.match(/class="pc[^"]* dead/g) ?? []).length).toBe(5);
     expect(html).toContain("(not allowed this round)");
+  });
+});
+
+describe("card upgrades on screen", () => {
+  it("marks every kind on the board and gives the card its look", () => {
+    const meta = newMeta();
+    const mods = modsFor(meta, "climb", []);
+    const run = startRun(1, mods);
+    dealRound(run, mods, 1);
+    const board = (run.hand as { board: number[] }).board;
+    run.cardUpgrades = { [board[0] as number]: { glass: true, edition: "poly", seal: "coin" }, [board[1] as number]: { stone: true }, [board[2] as number]: { edition: "negative", seal: "red", gold: true } };
+    const html = slotPanel(climb({ run, mods }));
+    expect(html).toMatch(/class="pc[^"]* glass[^"]* ed-poly[^"]* seal-coin"[^>]*>.*?<em>◇P¢<\/em>/);
+    expect(html).toMatch(/class="pc[^"]* stone"[^>]*><span>▣<\/span><span><\/span><em>▣<\/em>/);
+    expect(html).toMatch(/gold[^"]* ed-negative seal-red"[^>]*>.*?<em>\$NR<\/em>/);
+  });
+
+  it("offers the kinds the tree has opened, with their text", () => {
+    const meta = newMeta();
+    meta.climb.chips = 500;
+    for (const id of ["golds", "editions", "seals"]) buyTech(meta, "climb", id);
+    const mods = modsFor(meta, "climb", []);
+    const html = shopPanel(climb({ meta, mods, run: startRun(1, mods) }));
+    for (const label of ["Foil", "Holo", "Coin seal", "Red seal"]) expect(html).toContain(`>${label}</button>`);
+    expect(html).not.toContain(">Glass</button>");
   });
 });

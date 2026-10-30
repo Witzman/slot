@@ -15,7 +15,25 @@ export interface CardUpgrade {
   gold?: boolean;
   /** counts as any suit */
   anySuit?: boolean;
+  /** every line it is in pays 1.6 times; after a round it may shatter and is plain again */
+  glass?: boolean;
+  /** a blank: never part of a hand, but every line it is in pays a flat sum, paying hand or not */
+  stone?: boolean;
+  /** one edition: foil (flat sum per paying line), holo (+100% per paying line), poly (x1.5 per paying line), negative (one more joker may be in the deck) */
+  edition?: Edition;
+  /** one seal: coin (pays when held), red (the card's bonuses count twice) */
+  seal?: Seal;
 }
+
+export type Edition = "foil" | "holo" | "poly" | "negative";
+export type Seal = "coin" | "red";
+
+/** What the card effects pay, in bets. */
+export const FOIL_PAY = 3;
+export const STONE_PAY = 2;
+export const GLASS_MUL = 1.6;
+export const POLY_MUL = 1.5;
+export const COIN_SEAL_PAY = 4;
 
 export interface ScoreMods {
   /** multiplies the pay of each hand rank */
@@ -52,6 +70,10 @@ export interface RoundResult {
   payout: number;
   /** which cells were replaced by the draw */
   drawn: boolean[];
+  /** coins the coin seals of the held cards paid (already in the payout) */
+  sealCoins: number;
+  /** glass cards that shattered after the round (set by the run or the session) */
+  shattered?: number[];
 }
 
 export interface Hold {
@@ -95,14 +117,25 @@ export function scoreBoard(board: readonly Card[], bet: number, upgrades: Readon
   for (let line = 0; line < LINES; line++) {
     if (score.deadLines?.includes(line)) continue;
     const cards = lineCells(line).map((i) => board[i] as Card);
-    const hand: HandCard[] = cards.map((c) => {
+    // a stone is a blank: a rank and a suit no other card has, so it never joins a hand
+    const hand: HandCard[] = cards.map((c, i) => {
       const u = upgrades[c];
+      if (u?.stone) return { rank: -100 - 10 * i, suit: -1 - i };
       return { rank: Math.min(14, rankOf(c) + (u?.rank ?? 0)), suit: suitOf(c), joker: u?.joker, anySuit: u?.anySuit };
     });
+    const stones = cards.filter((c) => upgrades[c]?.stone).length;
+    sum += STONE_PAY * bet * stones;
     const rank = rankHand(hand);
     if (rank === null) continue;
-    const gold = cards.filter((c) => upgrades[c]?.gold).length;
-    const pay = BASE_PAY[rank] * bet * score.handMul[rank] * (1 + 0.5 * gold);
+    // a red seal makes the bonuses of its card count twice
+    const weight = (c: Card): number => (upgrades[c]?.seal === "red" ? 2 : 1);
+    const count = (test: (u: CardUpgrade) => boolean): number => cards.reduce((n, c) => n + (upgrades[c] && test(upgrades[c] as CardUpgrade) ? weight(c) : 0), 0);
+    const gold = count((u) => u.gold === true);
+    const holo = count((u) => u.edition === "holo");
+    const foil = count((u) => u.edition === "foil");
+    const poly = count((u) => u.edition === "poly");
+    const glass = cards.filter((c) => upgrades[c]?.glass).length;
+    const pay = (BASE_PAY[rank] * bet * score.handMul[rank] * (1 + 0.5 * gold + 1.0 * holo) + FOIL_PAY * bet * foil) * Math.pow(POLY_MUL, poly) * Math.pow(GLASS_MUL, glass);
     lines.push({ line, rank, pay });
     sum += pay;
   }
@@ -131,8 +164,9 @@ export function drawRound(rng: Rng, d: Deal, hold: Hold, o: DrawOptions): RoundR
   d.board = board;
   d.draws++;
   const final = d.draws >= d.maxDraws;
-  if (!final) return { final, board, lines: [], payout: 0, drawn };
+  if (!final) return { final, board, lines: [], payout: 0, drawn, sealCoins: 0 };
   d.phase = "done";
   const scored = scoreBoard(board, d.bet, o.upgrades, o.score);
-  return { final, board, lines: scored.lines, payout: scored.payout, drawn };
+  const sealCoins = [...kept].filter((i) => o.upgrades[board[i] as Card]?.seal === "coin").length * COIN_SEAL_PAY * d.bet;
+  return { final, board, lines: scored.lines, payout: scored.payout + sealCoins, drawn, sealCoins };
 }

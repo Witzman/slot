@@ -1,5 +1,5 @@
 import { ENDLESS_UPGRADES, type Upgrade, upgradeCost } from "./content";
-import { type CardKind, applyCardUpgrade, cardUpgradeCost } from "./cards-shop";
+import { type CardKind, applyCardUpgrade, cardUpgradeCost, shatterGlass } from "./cards-shop";
 import { type Meta, type RunView, modsFor } from "./meta";
 import type { Mods } from "./mods";
 import { type Rng, makeRng } from "./rng";
@@ -90,6 +90,7 @@ export function drawSession(s: Session, m: Mods, hold: Hold): RoundResult | Sess
   if (holdSlots(hold) > m.holdMax) return "bad-hold";
   const res = drawRound(s.rng, d, hold, { removedRanks: m.removedRanks, singleHold: m.singleHold, upgrades: s.cardUpgrades, score: { handMul: m.handMul, globalMul: m.slotWinMul, lineBonus: m.lineBonus } });
   if (typeof res === "string" || !res.final) return res;
+  res.shattered = shatterGlass(s.rng, s.cardUpgrades, res.board, res.lines);
   s.coins += res.payout;
   s.totalEarned += res.payout;
   s.rounds++;
