@@ -1,5 +1,6 @@
-import { MILESTONES, MILESTONE_MUL, PRESTIGE_AT, ENDLESS_SHOP, canPrestige, prestigeChips, prestigeMul } from "../game/endless";
+import { ASCEND_AT, MILESTONES, MILESTONE_MUL, PRESTIGE_AT, ENDLESS_SHOP, STAR_STEP, canAscend, canPrestige, prestigeChips, prestigeMul } from "../game/endless";
 import { upgradeCost } from "../game/content";
+import { chipBonus } from "../game/meta";
 import type { View } from "./view";
 
 const esc = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] as string);
@@ -21,7 +22,7 @@ export function endlessHud(v: View): string {
     <div class="stat"><span>Coins</span><strong class="gold">${s.coins}</strong></div>
     <div class="stat"><span>Rounds</span><strong>${s.rounds}</strong></div>
     <div class="stat wide"><span>Milestone ${s.milestones}/${MILESTONES.length}${next === undefined ? " · all reached" : ` · ${s.totalEarned}/${next} won`} <em>(${pct}%)</em></span><div class="bar"><div style="width:${pct}%"></div></div></div>
-    <div class="stat"><span>Prestige</span><strong>×${prestigeMul(s.prestige).toFixed(2)}</strong></div>`;
+    <div class="stat"><span>Prestige${v.meta.endless.stars > 0 ? ` · ${v.meta.endless.stars}★` : ""}</span><strong>×${prestigeMul(s.prestige).toFixed(2)}</strong></div>`;
 }
 
 /** Below the cards: auto-play and the prestige button. */
@@ -30,11 +31,18 @@ export function endlessPanel(v: View): string {
   if (!s) return "";
   const rate = v.mods.autoRate;
   const auto = rate > 0 ? `<button data-act="auto" class="${s.autoOn ? "active" : ""}">${s.autoOn ? "Auto-play on" : "Auto-play off"} <small>one round every ${Math.round(1000 / rate) / 1000} s, holds the best line</small></button>` : `<p class="hint">Auto-play is a node of the Economy tree (bought with prestige chips).</p>`;
-  const chips = prestigeChips(s.milestones);
+  const chips = Math.floor(prestigeChips(s.milestones) * chipBonus(v.meta));
   const prestigeBtn = canPrestige(s)
     ? `<button class="big" data-act="prestige">PRESTIGE <small>start over with +${chips} chips and ×${prestigeMul(s.prestige + 1).toFixed(2)} wins</small></button>`
     : `<p class="hint">Prestige opens at milestone ${PRESTIGE_AT} of ${MILESTONES.length}. Each milestone makes every win ${Math.round((MILESTONE_MUL - 1) * 100)}% bigger.</p>`;
-  return `${auto}${prestigeBtn}`;
+  const g = s.gamble;
+  const gambleRow = g ? `<div class="row"><span class="note">Double ${g.stake} coins? ${g.left} ${g.left === 1 ? "try" : "tries"} left</span><button data-act="gamble" data-v="red">Red</button><button data-act="gamble" data-v="black">Black</button><button data-act="takewin">Keep it</button></div>` : "";
+  const ascendBtn = canAscend(v.meta)
+    ? `<button class="big" data-act="ascend">ASCEND <small>${v.meta.endless.prestiges} prestiges: lose Endless chips, tree and prestiges for a star (every win +${Math.round(STAR_STEP * 100)}%)</small></button>`
+    : v.meta.endless.prestiges > 0 || v.meta.endless.stars > 0
+      ? `<p class="hint">${v.meta.endless.stars} star${v.meta.endless.stars === 1 ? "" : "s"} · ascension opens after ${ASCEND_AT} prestiges (${v.meta.endless.prestiges} so far).</p>`
+      : "";
+  return `${auto}${gambleRow}${prestigeBtn}${ascendBtn}`;
 }
 
 export function endlessShop(v: View): string {
