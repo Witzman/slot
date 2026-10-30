@@ -6,7 +6,7 @@ import { type Run, type Refusal, buyCardUpgrade, buyCharm, buyUpgrade, buyVouche
 import type { CardKind } from "../game/cards-shop";
 import { type Session, autoHold, sessionView, buySessionCard, buySessionUpgrade, canPrestige, dealSession, drawSession, endlessMods, prestige, startSession } from "../game/endless";
 import { HAND_LABEL } from "../game/hands";
-import { holdSlots } from "../game/round";
+import { holdSlots, nudge } from "../game/round";
 import { localStore } from "../storage";
 import { loadMeta, loadMode, loadRun, loadSession, save } from "./save";
 import { isMuted, setMuted, sfx, unlock } from "./sfx";
@@ -34,7 +34,7 @@ async function boot(): Promise<void> {
   let run: Run | null = await loadRun(store);
   let session: Session | null = await loadSession(store);
   let mode: ModeId = await loadMode(store);
-  const ui: UI = { screen: "start", tab: "play", slotBet: 1, holdRows: new Set(), holdCols: new Set(), holdCells: new Set(), result: null, slotNote: "", overChips: 0, muted: false, picked: [], craftNote: "", stake: 0, setup: "classic", today: Math.floor(Date.now() / 86400000), cardKind: "rank" };
+  const ui: UI = { screen: "start", tab: "play", slotBet: 1, holdRows: new Set(), holdCols: new Set(), holdCells: new Set(), result: null, slotNote: "", overChips: 0, muted: false, picked: [], craftNote: "", stake: 0, setup: "classic", today: Math.floor(Date.now() / 86400000), nudge: false, cardKind: "rank" };
   const mk = (charms: string[]) => modsFor(meta, "climb", charms, run?.upgrades ?? {}, run?.boss ?? null, run?.stake ?? 0, run?.setup ?? "classic");
   const idle = startSession(0, modsFor(meta, "endless", [], {}), 0);
   const mods = () => (mode === "endless" ? endlessMods(meta, session ?? idle) : mk(run?.charms ?? []));
@@ -214,6 +214,22 @@ async function boot(): Promise<void> {
           render();
         }
         break;
+      case "nudgemode":
+        ui.nudge = !ui.nudge;
+        sfx.click();
+        render();
+        break;
+      case "nudgerow":
+      case "nudgecol": {
+        const hand = mode === "endless" ? session?.hand : run?.hand;
+        if (hand && nudge(hand, name === "nudgerow" ? "row" : "col", Number(value))) {
+          clearHold();
+          sfx.click();
+          persist();
+          render();
+        }
+        break;
+      }
       case "loan":
         if (run && takeLoan(run, Number(value))) {
           sfx.gold();
@@ -434,7 +450,7 @@ async function boot(): Promise<void> {
       if (typeof d === "string") return;
       clearHold();
     }
-    const res = drawSession(session, m, autoHold((session.hand as { board: number[] }).board, m, session.cardUpgrades));
+    const res = drawSession(session, m, autoHold((session.hand as { board: number[] }).board, m, session.cardUpgrades, session.hand?.hidden ? (session.hand.mystery ?? []) : []));
     if (typeof res === "string") return;
     ui.result = res;
     if (res.final) ui.slotNote = res.payout > 0 ? `Auto: ${res.lines.length} hand${res.lines.length > 1 ? "s" : ""} · won ${res.payout} coins` : "Auto: no hand pays.";

@@ -5,7 +5,7 @@ import { type Mods, scoreMods } from "./mods";
 import { type Rng, makeRng } from "./rng";
 import { restoreCardUpgrades, restoreHand } from "./run";
 import { HAND_ORDER } from "./hands";
-import { type CardUpgrade, type Deal, type Hold, LINES, type RoundResult, SIZE, deal, drawRound, holdSlots, scoreBoard } from "./round";
+import { type CardUpgrade, type Deal, type Hold, LINES, type RoundResult, SIZE, deal, drawRound, holdSlots, lineCells, scoreBoard } from "./round";
 
 /** Endless mode (#10): no quota, no turns. The player plays rounds at their own pace, buys upgrades and card upgrades with coins, and prestiges at a late milestone. */
 export interface Session {
@@ -79,7 +79,7 @@ export function dealSession(s: Session, m: Mods, bet: number): SessionRefusal | 
   if (!broke && s.coins < bet * LINES) return "no-coins";
   const staked = broke ? 1 : bet;
   if (!broke) s.coins -= bet * LINES;
-  s.hand = deal(s.rng, staked, m.removedRanks, m.redraws);
+  s.hand = deal(s.rng, staked, m.removedRanks, m.redraws, m.mystery, m.nudges);
   return s.hand;
 }
 
@@ -105,10 +105,10 @@ export function drawSession(s: Session, m: Mods, hold: Hold): RoundResult | Sess
   return res;
 }
 
-/** The hold of automatic play: the best paying line (a row or a column), or nothing. */
-export function autoHold(board: readonly number[], m: Mods, upgrades: Readonly<Record<number, CardUpgrade>>): Hold {
+/** The hold of automatic play: the best paying line (a row or a column), or nothing. Lines with a face-down card are not looked at: automatic play does not see them. */
+export function autoHold(board: readonly number[], m: Mods, upgrades: Readonly<Record<number, CardUpgrade>>, hidden: readonly number[] = []): Hold {
   if (m.holdMax === 0) return { rows: [], cols: [], cells: [] };
-  const lines = scoreBoard(board, 1, upgrades, { handMul: m.handMul, globalMul: 1, lineBonus: 0 }).lines;
+  const lines = scoreBoard(board, 1, upgrades, { handMul: m.handMul, globalMul: 1, lineBonus: 0 }).lines.filter((l) => !lineCells(l.line).some((i) => hidden.includes(i)));
   const top = [...lines].sort((a, b) => b.pay - a.pay)[0];
   if (!top) return { rows: [], cols: [], cells: [] };
   return top.line < SIZE ? { rows: [top.line], cols: [], cells: [] } : { rows: [], cols: [top.line - SIZE], cells: [] };
