@@ -1,5 +1,5 @@
 import type { Effect, Mods } from "./mods";
-import type { HandRank } from "./hands";
+import { HAND_LABEL, HAND_ORDER, type HandRank } from "./hands";
 
 export interface TechNode {
   id: string;
@@ -57,6 +57,8 @@ export const TECH: readonly TechNode[] = [
   { id: "runs2", branch: "hands", name: "Runs and Colours II", text: "Three of a kind, straights and flushes pay another 25% more.", cost: 16, requires: ["runs1"], effect: (m) => void (["three", "straight", "flush"] as const).forEach((r) => (m.handMul[r] *= 1.25)) },
   { id: "bigs1", branch: "hands", name: "Big Hands", text: "Full houses and four of a kind pay 25% more.", cost: 10, requires: ["runs1"], effect: (m) => void (["fullHouse", "four"] as const).forEach((r) => (m.handMul[r] *= 1.25)) },
   { id: "royals", branch: "hands", name: "Royal Court", text: "Straight flushes and royal flushes pay 50% more.", cost: 22, requires: ["bigs1"], effect: (m) => void (["straightFlush", "royal"] as const).forEach((r) => (m.handMul[r] *= 1.5)) },
+  { id: "adj1", branch: "hands", name: "Neighbours", text: "Each pair of neighbouring cards of one rank, across or down, pays half a bet.", cost: 10, requires: ["pairs1"], effect: (m) => void (m.adjacency += 0.5) },
+  { id: "adj2", branch: "hands", name: "Next Door", text: "Neighbouring pairs pay another half a bet.", cost: 18, requires: ["adj1"], effect: (m) => void (m.adjacency += 0.5) },
   { id: "linebonus", branch: "hands", name: "Many Hands", text: "Each paying line beyond the third makes the round pay 10% more.", cost: 12, requires: ["pairs1"], effect: (m) => void (m.lineBonus += 0.1) },
 ];
 
@@ -154,12 +156,32 @@ export interface Upgrade {
 }
 
 /** Bought with coins during a run, level by level, gone when the run ends (like towers in a tower defense). */
+/** Levels a hand can be raised to in a run. */
+export const HAND_LEVEL_MAX = 6;
+/** The pay bonus of a hand at a level: 25% for the first, each further level adds 15% less than the one before. */
+export const levelBonus = (level: number): number => {
+  let sum = 0;
+  for (let i = 0; i < level; i++) sum += 0.25 * Math.pow(0.85, i);
+  return sum;
+};
+/** Coins for the first level of each hand: the rarer the hand, the dearer. */
+const HAND_LEVEL_BASE: Record<HandRank, number> = { jacks: 10, twoPair: 12, three: 15, straight: 18, flush: 22, fullHouse: 28, four: 40, straightFlush: 60, five: 70, royal: 90 };
+const HAND_LEVELS: readonly Upgrade[] = HAND_ORDER.map((rank) => ({
+  id: `lv_${rank}`,
+  name: `${HAND_LABEL[rank]} level`,
+  text: `${HAND_LABEL[rank]} pays more with each level (+25%, then less and less).`,
+  base: HAND_LEVEL_BASE[rank],
+  max: HAND_LEVEL_MAX,
+  effect: (m: Mods, l: number) => void (m.handMul[rank] *= 1 + levelBonus(l)),
+}));
+
 export const UPGRADES: readonly Upgrade[] = [
   { id: "pay", name: "Better Odds", text: "Every round pays +10% per level.", base: 20, max: 5, effect: (m, l) => void (m.slotWinMul *= 1 + 0.1 * l) },
   { id: "pairs", name: "Pair Bonus", text: "Jacks or better and two pair pay +15% per level.", base: 15, max: 5, effect: (m, l) => void (["jacks", "twoPair"] as const).forEach((r) => (m.handMul[r] *= 1 + 0.15 * l)) },
   { id: "bigs", name: "Big Hands", text: "Straights and better pay +12% per level.", base: 25, max: 5, effect: (m, l) => void (["straight", "flush", "fullHouse", "four", "straightFlush", "royal"] as const).forEach((r) => (m.handMul[r] *= 1 + 0.12 * l)) },
   { id: "hours", name: "Longer Shifts", text: "+1 turn per round per level, from the next round.", base: 30, max: 3, effect: (m, l) => void (m.turns += l) },
   { id: "savings", name: "Savings Account", text: "+5% interest per level.", base: 25, max: 3, effect: (m, l) => void (m.interest += 0.05 * l) },
+  ...HAND_LEVELS,
 ];
 
 export const upgradeCost = (u: Upgrade, level: number): number => Math.ceil(u.base * Math.pow(u.growth ?? 1.5, level));

@@ -17,10 +17,10 @@ describe("start decks", () => {
     expect(modsFor(meta, "climb", [], {}, null, 0, "classic")).toEqual(modsFor(meta, "climb", []));
   });
 
-  it("has at most four decks, each with a way to open it", () => {
+  it("has at most five decks, each with a way to open it", () => {
     const decks = SETUPS.filter((s) => s.kind === "deck");
     expect(decks.length).toBeGreaterThanOrEqual(2);
-    expect(decks.length).toBeLessThanOrEqual(4);
+    expect(decks.length).toBeLessThanOrEqual(5);
     for (const d of decks) expect(d.lock.length, d.id).toBeGreaterThan(0);
   });
 

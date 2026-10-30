@@ -2,7 +2,7 @@ import "./style.css";
 import { type Meta, type ModeId, addPlayTime, buyTech, combine, toggleEquip, checkAchievements, fileRelic, finishRun, modsFor } from "../game/meta";
 import { RELICS, CHARMS } from "../game/content";
 import { dailySeed, setupById, setupUnlocked } from "../game/setups";
-import { type Run, type Refusal, buyCardUpgrade, buyCharm, buyUpgrade, buyVoucher, chooseEvent, closeRound, dealRound, drainEvents, drawHand, pickCharm, rerollDraft, rerollShop, skipDraft, startRun } from "../game/run";
+import { type Run, type Refusal, buyCardUpgrade, buyCharm, buyUpgrade, buyVoucher, takeLoan, chooseEvent, closeRound, dealRound, drainEvents, drawHand, pickCharm, rerollDraft, rerollShop, skipDraft, startRun } from "../game/run";
 import type { CardKind } from "../game/cards-shop";
 import { type Session, autoHold, sessionView, buySessionCard, buySessionUpgrade, canPrestige, dealSession, drawSession, endlessMods, prestige, startSession } from "../game/endless";
 import { HAND_LABEL } from "../game/hands";
@@ -163,7 +163,7 @@ async function boot(): Promise<void> {
       sfx.card();
     } else {
       const best = res.lines.reduce<typeof res.lines[number] | undefined>((b, l) => (b === undefined || l.pay > b.pay ? l : b), undefined);
-      ui.slotNote = res.payout > 0 ? `${res.lines.length} hand${res.lines.length > 1 ? "s" : ""} · best: ${best ? HAND_LABEL[best.rank] : ""} · won ${res.payout} coins${res.sealCoins > 0 ? ` (${res.sealCoins} from coin seals)` : ""}${(res.shattered?.length ?? 0) > 0 ? " · glass shattered" : ""}` : "No hand pays. Next round.";
+      ui.slotNote = res.payout > 0 ? `${res.lines.length} hand${res.lines.length > 1 ? "s" : ""} · best: ${best ? HAND_LABEL[best.rank] : ""} · won ${res.payout} coins${res.sealCoins > 0 ? ` (${res.sealCoins} from coin seals)` : ""}${(res.shattered?.length ?? 0) > 0 ? " · glass shattered" : ""}${res.adjacent > 0 && mods().adjacency > 0 ? ` · ${res.adjacent} neighbour pair${res.adjacent > 1 ? "s" : ""}` : ""}` : "No hand pays. Next round.";
       if (res.payout >= (mode === "endless" ? session?.hand?.bet : run?.hand?.bet ?? 1)! * 60) sfx.big();
       else if (res.payout > 0) sfx.win();
       else sfx.lose();
@@ -212,6 +212,12 @@ async function boot(): Promise<void> {
           ui.setup = value;
           sfx.click();
           render();
+        }
+        break;
+      case "loan":
+        if (run && takeLoan(run, Number(value))) {
+          sfx.gold();
+          changed();
         }
         break;
       case "buyvoucher":

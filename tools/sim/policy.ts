@@ -2,7 +2,7 @@
 import { CHARMS, UPGRADES, upgradeCost } from "../../src/game/content";
 import { type CardKind, applyCardUpgrade, cardUpgradeCost } from "../../src/game/cards-shop";
 import { rankOf, suitOf } from "../../src/game/cards";
-import type { Mods } from "../../src/game/mods";
+import { type Mods, scoreMods } from "../../src/game/mods";
 import { type Run, quotaFor } from "../../src/game/run";
 import { type CardUpgrade, type Deal, type Hold, LINES, SIZE, deal, drawRound, lineCells, scoreBoard } from "../../src/game/round";
 import { makeRng } from "../../src/game/rng";
@@ -43,7 +43,7 @@ function expected(run: HoldState, m: Mods, board: number[], hold: Hold, samples:
   let total = 0;
   for (let i = 0; i < samples; i++) {
     const d = { board: [...board], bet: 1, phase: "hold" as const, draws: 0, maxDraws: 1 };
-    const res = drawRound(rng, d, hold, { removedRanks: m.removedRanks, singleHold: m.singleHold, upgrades: run.cardUpgrades, score: { handMul: m.handMul, globalMul: m.slotWinMul, lineBonus: m.lineBonus } });
+    const res = drawRound(rng, d, hold, { removedRanks: m.removedRanks, singleHold: m.singleHold, upgrades: run.cardUpgrades, score: scoreMods(m) });
     if (typeof res !== "string") total += res.payout;
   }
   return total / samples + (drawsLeft > 1 ? 0.1 : 0);

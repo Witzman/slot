@@ -1,5 +1,6 @@
 import { EVENT_CHANCE } from "./events";
 import { HAND_ORDER, type HandRank } from "./hands";
+import type { ScoreMods } from "./round";
 
 /** Everything the tech tree, the charms and the upgrades of a run can change. Built fresh from the base by `modsFor`. */
 export interface Mods {
@@ -39,6 +40,10 @@ export interface Mods {
   deadLines: number[];
   /** columns may be held (a boss can forbid it) */
   colHold: boolean;
+  /** ranks (2 to 14) whose cards count as jokers, by their face (a pay table variant) */
+  wildRanks: number[];
+  /** bets paid for each pair of neighbouring cards of one rank (across and down); 0: none */
+  adjacency: number;
 }
 
 export function baseMods(): Mods {
@@ -63,7 +68,12 @@ export function baseMods(): Mods {
     eventChance: EVENT_CHANCE,
     deadLines: [],
     colHold: true,
+    wildRanks: [],
+    adjacency: 0,
   };
 }
 
 export type Effect = (m: Mods) => void;
+
+/** What the scoring reads from the mods of a round. `deadLines` are lines that pay nothing (a lockout boss adds its line). */
+export const scoreMods = (m: Mods, deadLines: readonly number[] = m.deadLines): ScoreMods => ({ handMul: m.handMul, globalMul: m.slotWinMul, lineBonus: m.lineBonus, deadLines, wildRanks: m.wildRanks, adjacency: m.adjacency });

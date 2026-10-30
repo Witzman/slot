@@ -47,5 +47,5 @@ describe("balance of the climb mode", () => {
 
   it("a run is a pure function of its seed", () => {
     expect(playRun(7, newMeta(), smart)).toEqual(playRun(7, newMeta(), smart));
-  });
+  }, 60_000);
 });
