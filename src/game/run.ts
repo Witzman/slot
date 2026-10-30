@@ -322,7 +322,7 @@ export function drainEvents(run: Run): string[] {
   return e;
 }
 
-function restoreHand(raw: unknown): Deal | null {
+export function restoreHand(raw: unknown): Deal | null {
   if (typeof raw !== "object" || raw === null) return null;
   const h = raw as Partial<Deal>;
   const ok = Array.isArray(h.board) && h.board.length === 25 && h.board.every((c) => Number.isInteger(c) && c >= 0 && c < 52) && new Set(h.board).size === 25;
@@ -330,7 +330,7 @@ function restoreHand(raw: unknown): Deal | null {
   return { board: [...(h.board as number[])], bet: h.bet as number, phase: h.phase, draws: h.draws as number, maxDraws: h.maxDraws as number };
 }
 
-function restoreCardUpgrades(raw: unknown): Record<number, CardUpgrade> {
+export function restoreCardUpgrades(raw: unknown): Record<number, CardUpgrade> {
   const out: Record<number, CardUpgrade> = {};
   if (typeof raw !== "object" || raw === null) return out;
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {

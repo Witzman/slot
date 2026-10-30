@@ -4,15 +4,21 @@ import { type CardKind, CARD_KINDS, applyCardUpgrade, cardUpgradeCost } from "..
 import { rankOf, suitOf } from "../../src/game/cards";
 import type { Mods } from "../../src/game/mods";
 import { type Run, quotaFor } from "../../src/game/run";
-import { type Hold, LINES, SIZE, deal, drawRound, lineCells, scoreBoard } from "../../src/game/round";
+import { type CardUpgrade, type Deal, type Hold, LINES, SIZE, deal, drawRound, lineCells, scoreBoard } from "../../src/game/round";
 import { makeRng } from "../../src/game/rng";
 import type { Policy } from "./harness";
+
+/** What a hold decision needs to see: the round on the table and the card upgrades (a climb run or an endless session). */
+export interface HoldState {
+  hand: Deal | null;
+  cardUpgrades: Readonly<Record<number, CardUpgrade>>;
+}
 
 const NONE: Hold = { rows: [], cols: [], cells: [] };
 const holdOf = (lines: readonly number[]): Hold => ({ rows: lines.filter((l) => l < SIZE), cols: lines.filter((l) => l >= SIZE).map((l) => l - SIZE), cells: [] });
 
 /** How promising a line is to keep: pairs and runs of one suit or rank count. A cheap guess; the expected value decides in the end. */
-function potential(board: readonly number[], line: number, ups: Run["cardUpgrades"]): number {
+function potential(board: readonly number[], line: number, ups: Readonly<Record<number, CardUpgrade>>): number {
   const cards = lineCells(line).map((i) => board[i] as number);
   const ranks = cards.map((c) => Math.min(14, rankOf(c) + (ups[c]?.rank ?? 0)));
   const count = new Map<number, number>();
@@ -32,7 +38,7 @@ function potential(board: readonly number[], line: number, ups: Run["cardUpgrade
   return same * 3 + flush * 1.5 + best + jokers * 4 + ranks.filter((r) => r >= 11).length * 0.4;
 }
 
-function expected(run: Run, m: Mods, board: number[], hold: Hold, samples: number, drawsLeft: number): number {
+function expected(run: HoldState, m: Mods, board: number[], hold: Hold, samples: number, drawsLeft: number): number {
   const rng = makeRng(777);
   let total = 0;
   for (let i = 0; i < samples; i++) {
@@ -44,7 +50,7 @@ function expected(run: Run, m: Mods, board: number[], hold: Hold, samples: numbe
 }
 
 /** Holds by expected value: starting from nothing, add the line that raises the average payout of a few sample draws the most, while it helps and the limit allows. */
-function smartHold(run: Run, m: Mods): Hold {
+export function smartHold(run: HoldState, m: Mods): Hold {
   const d = run.hand;
   if (!d || m.holdMax === 0) return NONE;
   const board = d.board;
@@ -69,7 +75,7 @@ function smartHold(run: Run, m: Mods): Hold {
 
 const cache = new Map<string, number>();
 /** Average coins per round per coin staked of a set of mods with a simple hold rule (the best line), over fixed rounds. */
-function rtp(m: Mods): number {
+export function rtp(m: Mods): number {
   const key = JSON.stringify([m.handMul, m.slotWinMul, m.lineBonus, m.removedRanks, m.holdMax, m.redraws]);
   let v = cache.get(key);
   if (v === undefined) {

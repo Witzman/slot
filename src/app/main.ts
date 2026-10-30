@@ -1,11 +1,12 @@
 import "./style.css";
-import { type Meta, type ModeId, buyTech, combine, toggleEquip, checkAchievements, fileRelic, finishRun, modsFor } from "../game/meta";
+import { type Meta, type ModeId, addPlayTime, buyTech, combine, toggleEquip, checkAchievements, fileRelic, finishRun, modsFor } from "../game/meta";
 import { RELICS, CHARMS } from "../game/content";
 import { type Run, type Refusal, buyCardUpgrade, buyCharm, buyUpgrade, chooseEvent, closeRound, dealRound, drainEvents, drawHand, pickCharm, rerollDraft, rerollShop, startRun } from "../game/run";
 import type { CardKind } from "../game/cards-shop";
+import { type Session, autoHold, buySessionCard, buySessionUpgrade, canPrestige, dealSession, drawSession, endlessMods, prestige, startSession } from "../game/endless";
 import { HAND_LABEL } from "../game/hands";
 import { localStore } from "../storage";
-import { loadMeta, loadRun, save } from "./save";
+import { loadMeta, loadMode, loadRun, loadSession, save } from "./save";
 import { isMuted, setMuted, sfx, unlock } from "./sfx";
 import { type Tab, type UI, type View, bookPanel, hud, nav, overlay, roundPanel, shopPanel, slotPanel, treePanel } from "./view";
 
@@ -16,7 +17,7 @@ const $ = (id: string): HTMLElement => {
   return e;
 };
 
-const REFUSAL: Record<Refusal, string> = {
+const REFUSAL: Record<Refusal | "no-coins", string> = {
   "not-playing": "No run in progress.",
   "no-turns": "No turns left this round.",
   "no-coins": "Not enough coins for a round.",
@@ -26,16 +27,16 @@ const REFUSAL: Record<Refusal, string> = {
   "no-hand": "Deal first.",
 };
 
-/** The only mode on screen until the start screen offers both (plan task 5). */
-const MODE: ModeId = "climb";
-
 async function boot(): Promise<void> {
   let meta: Meta = await loadMeta(store);
   let run: Run | null = await loadRun(store);
-  const ui: UI = { tab: "play", slotBet: 1, holdRows: new Set(), holdCols: new Set(), holdCells: new Set(), result: null, slotNote: "", overChips: 0, muted: false, picked: [], craftNote: "", stake: 0, cardKind: "rank" };
-  const mk = (charms: string[]) => modsFor(meta, MODE, charms, run?.upgrades ?? {}, run?.boss ?? null, run?.stake ?? 0);
-  const mods = () => mk(run?.charms ?? []);
-  const view = (): View => ({ mode: MODE, run, meta, mods: mods(), ui });
+  let session: Session | null = await loadSession(store);
+  let mode: ModeId = await loadMode(store);
+  const ui: UI = { screen: "start", tab: "play", slotBet: 1, holdRows: new Set(), holdCols: new Set(), holdCells: new Set(), result: null, slotNote: "", overChips: 0, muted: false, picked: [], craftNote: "", stake: 0, cardKind: "rank" };
+  const mk = (charms: string[]) => modsFor(meta, "climb", charms, run?.upgrades ?? {}, run?.boss ?? null, run?.stake ?? 0);
+  const idle = startSession(0, modsFor(meta, "endless", [], {}), 0);
+  const mods = () => (mode === "endless" ? endlessMods(meta, session ?? idle) : mk(run?.charms ?? []));
+  const view = (): View => ({ mode, run, session, meta, mods: mods(), ui });
   let lastPhase = run?.phase ?? "over";
 
   const hudEl = $("hud");
@@ -56,7 +57,7 @@ async function boot(): Promise<void> {
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   function persist(now = false): void {
     clearTimeout(saveTimer);
-    const go = (): void => void save(store, meta, run).catch((e) => console.error("could not save", e));
+    const go = (): void => void save(store, meta, run, session, mode).catch((e) => console.error("could not save", e));
     if (now) go();
     else saveTimer = setTimeout(go, 400);
   }
@@ -78,14 +79,14 @@ async function boot(): Promise<void> {
 
   /** after anything changed the game: file prizes, show messages, unlock, close the run, save, draw */
   function changed(): void {
-    if (run) {
+    if (mode === "climb" && run) {
       for (; run.found > 0; run.found--) {
         const id = fileRelic(meta, run.rng);
         if (id) {
           toast(`Relic found: ${RELICS.find((r) => r.id === id)?.name ?? id}`);
           sfx.big();
         } else {
-          meta[MODE].chips++;
+          meta.climb.chips++;
           toast("A relic you already own: +1 chip");
         }
       }
@@ -100,7 +101,7 @@ async function boot(): Promise<void> {
       if ((run.phase === "draft" || run.phase === "event") && lastPhase !== run.phase) sfx.draft();
       lastPhase = run.phase;
     }
-    for (const a of checkAchievements(meta, MODE, run)) {
+    for (const a of checkAchievements(meta, mode, mode === "climb" ? run : null)) {
       toast(`Achievement: ${a.name} (+${a.chips} chips)`);
       sfx.win();
     }
@@ -111,7 +112,7 @@ async function boot(): Promise<void> {
   function newRun(): void {
     const seed = (Date.now() ^ Math.imul(meta.seedCounter++, 2654435761)) >>> 0;
     ui.stake = Math.min(ui.stake, meta.maxStake);
-    run = startRun(seed, modsFor(meta, MODE, [], {}, null, ui.stake), ui.stake);
+    run = startRun(seed, modsFor(meta, "climb", [], {}, null, ui.stake), ui.stake);
     lastPhase = "play";
     ui.slotNote = "";
     clearHold();
@@ -121,16 +122,21 @@ async function boot(): Promise<void> {
     render();
   }
 
+  let nextAuto = 0;
+
   const clearHold = (): void => {
     ui.holdRows.clear();
     ui.holdCols.clear();
     ui.holdCells.clear();
   };
 
+  /** The round on the table, for a climb run or an endless session. */
+  const hasTable = (): boolean => (mode === "endless" ? session !== null : run !== null);
+
   function dealAction(): void {
-    if (!run) return;
-    const res = dealRound(run, mods(), ui.slotBet);
-    if (typeof res === "string") return void toast(REFUSAL[res]);
+    if (!hasTable()) return;
+    const res = mode === "endless" && session ? dealSession(session, mods(), ui.slotBet) : run ? dealRound(run, mods(), ui.slotBet) : "not-playing";
+    if (typeof res === "string") return void toast(REFUSAL[res as Refusal] ?? "That is not possible now.");
     clearHold();
     ui.result = null;
     ui.slotNote = "";
@@ -139,8 +145,8 @@ async function boot(): Promise<void> {
   }
 
   function drawAction(): void {
-    if (!run) return;
-    const res = drawHand(run, mods(), { rows: [...ui.holdRows], cols: [...ui.holdCols], cells: [...ui.holdCells] });
+    const hold = { rows: [...ui.holdRows], cols: [...ui.holdCols], cells: [...ui.holdCells] };
+    const res = mode === "endless" && session ? drawSession(session, mods(), hold) : run ? drawHand(run, mods(), hold) : "no-hand";
     if (typeof res === "string") return void toast(res === "bad-hold" ? REFUSAL["bad-hold"] : REFUSAL["no-hand"]);
     ui.result = res;
     clearHold();
@@ -150,7 +156,7 @@ async function boot(): Promise<void> {
     } else {
       const best = res.lines.reduce<typeof res.lines[number] | undefined>((b, l) => (b === undefined || l.pay > b.pay ? l : b), undefined);
       ui.slotNote = res.payout > 0 ? `${res.lines.length} hand${res.lines.length > 1 ? "s" : ""} · best: ${best ? HAND_LABEL[best.rank] : ""} · won ${res.payout} coins` : "No hand pays. Next round.";
-      if (res.payout >= (run.hand?.bet ?? 1) * 60) sfx.big();
+      if (res.payout >= (mode === "endless" ? session?.hand?.bet : run?.hand?.bet ?? 1)! * 60) sfx.big();
       else if (res.payout > 0) sfx.win();
       else sfx.lose();
     }
@@ -190,6 +196,71 @@ async function boot(): Promise<void> {
       case "newrun":
         newRun();
         break;
+      case "menu":
+        ui.screen = "start";
+        persist(true);
+        render();
+        break;
+      case "play":
+        if (value === "climb" || value === "endless") {
+          mode = value;
+          ui.screen = "game";
+          ui.tab = "play";
+          ui.slotNote = "";
+          ui.result = null;
+          clearHold();
+          sfx.click();
+          persist(true);
+          render();
+        }
+        break;
+      case "mode":
+        if ((value === "climb" || value === "endless") && value !== mode) {
+          mode = value;
+          ui.tab = "play";
+          ui.slotNote = "";
+          ui.result = null;
+          clearHold();
+          sfx.click();
+          persist(true);
+          render();
+        }
+        break;
+      case "newsession": {
+        const seed = (Date.now() ^ Math.imul(meta.seedCounter++, 2654435761)) >>> 0;
+        session = startSession(seed, modsFor(meta, "endless", [], {}), 0);
+        ui.slotNote = "";
+        ui.result = null;
+        clearHold();
+        persist(true);
+        render();
+        break;
+      }
+      case "sbuy":
+        if (session && buySessionUpgrade(session, value, mods())) {
+          sfx.gold();
+          changed();
+        }
+        break;
+      case "auto":
+        if (session && mods().autoRate > 0) {
+          session.autoOn = !session.autoOn;
+          nextAuto = performance.now();
+          sfx.click();
+          changed();
+        }
+        break;
+      case "prestige":
+        if (session && canPrestige(session)) {
+          const chips = prestige(session, meta);
+          toast(`Prestige! +${chips} chips, and every win pays more for good.`);
+          sfx.big();
+          ui.slotNote = "";
+          ui.result = null;
+          clearHold();
+          changed();
+        }
+        break;
       case "slotbet":
         ui.slotBet += Number(value);
         sfx.click();
@@ -207,7 +278,7 @@ async function boot(): Promise<void> {
         render();
         break;
       case "cardbuy":
-        if (run && buyCardUpgrade(run, Number(value), ui.cardKind, mods())) {
+        if (mode === "endless" ? session !== null && buySessionCard(session, Number(value), ui.cardKind, mods()) : run !== null && buyCardUpgrade(run, Number(value), ui.cardKind, mods())) {
           sfx.gold();
           changed();
         }
@@ -295,7 +366,7 @@ async function boot(): Promise<void> {
         }
         break;
       case "buy":
-        if (buyTech(meta, MODE, value)) {
+        if (buyTech(meta, mode, value)) {
           sfx.win();
           changed();
         }
@@ -310,6 +381,31 @@ async function boot(): Promise<void> {
 
   addEventListener("pagehide", () => persist(true));
   document.addEventListener("visibilitychange", () => document.hidden && persist(true));
+
+  // automatic play in endless mode, once the tree allows it: one whole round per tick, never in a hidden tab, never a burst after a pause
+  setInterval(() => {
+    if (mode !== "endless" || !session?.autoOn || document.hidden || ui.screen !== "game" || ui.tab !== "play") return;
+    const m = mods();
+    if (m.autoRate <= 0 || performance.now() < nextAuto) return;
+    nextAuto = performance.now() + 1000 / m.autoRate;
+    if (session.hand === null || session.hand.phase !== "hold") {
+      const d = dealSession(session, m, Math.min(ui.slotBet, m.slotMaxBet));
+      if (typeof d === "string") return;
+    }
+    const res = drawSession(session, m, autoHold((session.hand as { board: number[] }).board, m, session.cardUpgrades));
+    if (typeof res === "string") return;
+    ui.result = res;
+    if (res.final) ui.slotNote = res.payout > 0 ? `Auto: ${res.lines.length} hand${res.lines.length > 1 ? "s" : ""} · won ${res.payout} coins` : "Auto: no hand pays.";
+    changed();
+  }, 200);
+
+  // play time of the mode on screen, for the owner's comparison: the app measures it, the game layer reads no clock
+  let lastTick = performance.now();
+  setInterval(() => {
+    const now = performance.now();
+    if (!document.hidden && ui.screen === "game") addPlayTime(meta, mode, now - lastTick);
+    lastTick = now;
+  }, 1000);
 
   changed(); // a loaded run that was over still pays its chips once
   render();

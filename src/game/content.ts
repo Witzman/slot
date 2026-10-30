@@ -141,8 +141,9 @@ export interface Upgrade {
   id: string;
   name: string;
   text: string;
-  /** coins for level 1; each further level costs 1.5 times the one before */
+  /** coins for level 1; each further level costs `growth` (1.5 when not given) times the one before */
   base: number;
+  growth?: number;
   max: number;
   effect: (m: Mods, level: number) => void;
 }
@@ -156,7 +157,18 @@ export const UPGRADES: readonly Upgrade[] = [
   { id: "savings", name: "Savings Account", text: "+5% interest per level.", base: 25, max: 3, effect: (m, l) => void (m.interest += 0.05 * l) },
 ];
 
-export const upgradeCost = (u: Upgrade, level: number): number => Math.ceil(u.base * Math.pow(1.5, level));
+export const upgradeCost = (u: Upgrade, level: number): number => Math.ceil(u.base * Math.pow(u.growth ?? 1.5, level));
+
+/** What the endless shop sells, bought with coins until the next prestige. Many small levels: there is always something to save for. Starting values; the balance pass retunes them. */
+export const ENDLESS_UPGRADES: readonly Upgrade[] = [
+  { id: "epay", name: "Better Odds", text: "Every round pays +8% per level.", base: 30, growth: 1.22, max: 200, effect: (m, l) => void (m.slotWinMul *= 1 + 0.08 * l) },
+  { id: "epairs", name: "Pair Bonus", text: "Jacks or better and two pair pay +10% per level.", base: 20, growth: 1.25, max: 80, effect: (m, l) => void (["jacks", "twoPair"] as const).forEach((r) => (m.handMul[r] *= 1 + 0.1 * l)) },
+  { id: "ebigs", name: "Big Hands", text: "Three of a kind and better pay +8% per level.", base: 40, growth: 1.27, max: 80, effect: (m, l) => void (["three", "straight", "flush", "fullHouse", "four", "straightFlush", "royal"] as const).forEach((r) => (m.handMul[r] *= 1 + 0.08 * l)) },
+  { id: "eline", name: "Many Hands", text: "Each paying line beyond the third makes a round pay +4% more per level.", base: 80, growth: 1.5, max: 20, effect: (m, l) => void (m.lineBonus += 0.04 * l) },
+  { id: "ehold", name: "More Holds", text: "Hold one more line per level (up to 5).", base: 120, growth: 4, max: 3, effect: (m, l) => void (m.holdMax += l) },
+  { id: "edraw", name: "Free Draw", text: "One more free draw per level: hold again, only the last draw pays.", base: 400, growth: 6, max: 2, effect: (m, l) => void (m.redraws += l) },
+  { id: "ebet", name: "High Roller", text: "The max bet is 1 higher per level.", base: 60, growth: 2.2, max: 4, effect: (m, l) => void (m.slotMaxBet += l) },
+];
 
 export interface Boss {
   id: string;
