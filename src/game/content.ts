@@ -8,6 +8,8 @@ export interface TechNode {
   text: string;
   cost: number;
   requires: string[];
+  /** the modes a node is for; none given: both */
+  modes?: ("climb" | "endless")[];
   effect: Effect;
 }
 
@@ -15,14 +17,42 @@ export interface TechNode {
 export const TECH: readonly TechNode[] = [
   { id: "purse1", branch: "economy", name: "Pocket Change", text: "Start each run with +20 coins.", cost: 3, requires: [], effect: (m) => void (m.startCoins += 20) },
   { id: "purse2", branch: "economy", name: "Lucky Wallet", text: "Start each run with +40 more coins.", cost: 8, requires: ["purse1"], effect: (m) => void (m.startCoins += 40) },
-  { id: "time1", branch: "economy", name: "Overtime", text: "+1 turn every round.", cost: 6, requires: ["purse1"], effect: (m) => void (m.turns += 1) },
-  { id: "time2", branch: "economy", name: "Night Shift", text: "+2 more turns every round.", cost: 14, requires: ["time1"], effect: (m) => void (m.turns += 2) },
-  { id: "haggle", branch: "economy", name: "Haggler", text: "Quotas are 10% lower.", cost: 12, requires: ["purse2"], effect: (m) => void (m.quotaMul *= 0.9) },
-  { id: "reroll", branch: "economy", name: "Second Look", text: "Re-draw the charm choice once per round.", cost: 9, requires: ["time1"], effect: (m) => void (m.rerolls += 1) },
+  { id: "time1", branch: "economy", name: "Overtime", text: "+1 turn every round.", cost: 6, requires: ["purse1"], modes: ["climb"], effect: (m) => void (m.turns += 1) },
+  { id: "time2", branch: "economy", name: "Night Shift", text: "+2 more turns every round.", cost: 14, requires: ["time1"], modes: ["climb"], effect: (m) => void (m.turns += 2) },
+  { id: "haggle", branch: "economy", name: "Haggler", text: "Quotas are 10% lower.", cost: 12, requires: ["purse2"], modes: ["climb"], effect: (m) => void (m.quotaMul *= 0.9) },
+  { id: "reroll", branch: "economy", name: "Second Look", text: "Re-draw the charm choice once per round.", cost: 9, requires: ["time1"], modes: ["climb"], effect: (m) => void (m.rerolls += 1) },
   { id: "case1", branch: "economy", name: "Display Case", text: "Equip a third relic.", cost: 6, requires: ["purse1"], effect: () => {} },
   { id: "case2", branch: "economy", name: "Trophy Room", text: "Equip a fourth relic.", cost: 14, requires: ["case1"], effect: () => {} },
   { id: "slotbet", branch: "economy", name: "High Roller", text: "Max bet 5.", cost: 7, requires: ["purse1"], effect: (m) => void (m.slotMaxBet = 5) },
   { id: "slotmul", branch: "economy", name: "Polished Felt", text: "Every round pays 15% more.", cost: 16, requires: ["slotbet"], effect: (m) => void (m.slotWinMul *= 1.15) },
+  { id: "interest1", branch: "economy", name: "Savings Account", text: "Keep 5% of your coins as interest each round.", cost: 10, requires: ["purse2"], modes: ["climb"], effect: (m) => void (m.interest += 0.05) },
+  { id: "auto1", branch: "economy", name: "Auto-Play", text: "Endless mode: the machine plays a round by itself every 4 seconds.", cost: 10, requires: ["purse1"], modes: ["endless"], effect: (m) => void (m.autoRate = Math.max(m.autoRate, 0.25)) },
+  { id: "auto2", branch: "economy", name: "Turbo Play", text: "Endless mode: a round every second.", cost: 20, requires: ["auto1"], modes: ["endless"], effect: (m) => void (m.autoRate = Math.max(m.autoRate, 1)) },
+
+  // hold: a round starts with at most two held lines, the tree widens that and adds single cards and free draws
+  { id: "hold3", branch: "hold", name: "Third Hold", text: "Hold up to 3 lines.", cost: 6, requires: [], effect: (m) => void (m.holdMax = Math.max(m.holdMax, 3)) },
+  { id: "hold4", branch: "hold", name: "Fourth Hold", text: "Hold up to 4 lines.", cost: 12, requires: ["hold3"], effect: (m) => void (m.holdMax = Math.max(m.holdMax, 4)) },
+  { id: "hold5", branch: "hold", name: "Fifth Hold", text: "Hold up to 5 lines.", cost: 20, requires: ["hold4"], effect: (m) => void (m.holdMax = Math.max(m.holdMax, 5)) },
+  { id: "single", branch: "hold", name: "Single Hold", text: "Hold single cards, not only rows and columns.", cost: 10, requires: ["hold3"], effect: (m) => void (m.singleHold = true) },
+  { id: "redraw1", branch: "hold", name: "Second Draw", text: "A free second draw: hold again, only the last draw pays.", cost: 16, requires: ["single"], effect: (m) => void (m.redraws += 1) },
+  { id: "redraw2", branch: "hold", name: "Third Draw", text: "A free third draw.", cost: 30, requires: ["redraw1"], effect: (m) => void (m.redraws += 1) },
+
+  // cards: the deck and what a single card can become
+  { id: "deck2", branch: "cards", name: "Cold Deck", text: "The twos leave the deck.", cost: 8, requires: [], effect: (m) => void (m.removedRanks.includes(2) || m.removedRanks.push(2)) },
+  { id: "deck3", branch: "cards", name: "Slim Deck", text: "The threes leave the deck too.", cost: 16, requires: ["deck2"], effect: (m) => void (m.removedRanks.includes(3) || m.removedRanks.push(3)) },
+  { id: "golds", branch: "cards", name: "Gold Leaf", text: "Cards can be gilded: every hand with a gold card pays 50% more.", cost: 10, requires: [], effect: (m) => void m.cardKinds.push("gold") },
+  { id: "anysuit", branch: "cards", name: "Chameleon", text: "Cards can count as any suit.", cost: 12, requires: ["golds"], effect: (m) => void m.cardKinds.push("anySuit") },
+  { id: "jokers", branch: "cards", name: "Joker Shop", text: "Cards can become jokers, the best card for any hand.", cost: 20, requires: ["golds"], effect: (m) => void m.cardKinds.push("joker") },
+  { id: "cardcost", branch: "cards", name: "Card Discount", text: "Card upgrades cost 25% less.", cost: 14, requires: ["golds"], effect: (m) => void (m.cardCostMul *= 0.75) },
+
+  // hands: what each kind of hand pays
+  { id: "pairs1", branch: "hands", name: "Pair Bonus", text: "Jacks or better and two pair pay 25% more.", cost: 6, requires: [], effect: (m) => void (["jacks", "twoPair"] as const).forEach((r) => (m.handMul[r] *= 1.25)) },
+  { id: "pairs2", branch: "hands", name: "Pair Bonus II", text: "Jacks or better and two pair pay another 25% more.", cost: 14, requires: ["pairs1"], effect: (m) => void (["jacks", "twoPair"] as const).forEach((r) => (m.handMul[r] *= 1.25)) },
+  { id: "runs1", branch: "hands", name: "Runs and Colours", text: "Three of a kind, straights and flushes pay 25% more.", cost: 8, requires: [], effect: (m) => void (["three", "straight", "flush"] as const).forEach((r) => (m.handMul[r] *= 1.25)) },
+  { id: "runs2", branch: "hands", name: "Runs and Colours II", text: "Three of a kind, straights and flushes pay another 25% more.", cost: 16, requires: ["runs1"], effect: (m) => void (["three", "straight", "flush"] as const).forEach((r) => (m.handMul[r] *= 1.25)) },
+  { id: "bigs1", branch: "hands", name: "Big Hands", text: "Full houses and four of a kind pay 25% more.", cost: 10, requires: ["runs1"], effect: (m) => void (["fullHouse", "four"] as const).forEach((r) => (m.handMul[r] *= 1.25)) },
+  { id: "royals", branch: "hands", name: "Royal Court", text: "Straight flushes and royal flushes pay 50% more.", cost: 22, requires: ["bigs1"], effect: (m) => void (["straightFlush", "royal"] as const).forEach((r) => (m.handMul[r] *= 1.5)) },
+  { id: "linebonus", branch: "hands", name: "Many Hands", text: "Each paying line beyond the third makes the round pay 10% more.", cost: 12, requires: ["pairs1"], effect: (m) => void (m.lineBonus += 0.1) },
 ];
 
 export type Rarity = "common" | "uncommon" | "rare";

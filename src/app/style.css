@@ -140,3 +140,15 @@ nav button { padding: 8px 4px; }
 .badge.none { visibility: hidden; }
 @keyframes deal-in { from { transform: translateY(-14px) rotateY(90deg); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (max-width: 520px) { .badge { font-size: 0.5rem; } .badge b { font-size: 0.62rem; } .cards { gap: 4px; padding: 6px; } }
+
+/* the card shop: pick a kind, then a card of the 52 */
+.kinds { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.kinds button.active { background: var(--gold); color: #1a1030; border-color: var(--gold); font-weight: 800; }
+.picker { display: grid; gap: 4px; }
+.pickrow { display: grid; grid-template-columns: repeat(13, minmax(0, 1fr)); gap: 3px; }
+.pick { padding: 4px 0; font-size: 0.72rem; background: #fbf8ff; color: #1c1230; border: 1px solid #cfc2ee; border-radius: 5px; position: relative; min-width: 0; }
+.pick.red { color: #d3213f; }
+.pick.has { box-shadow: 0 0 0 2px var(--gold); }
+.pick em { display: block; font-size: 0.5rem; font-style: normal; color: #7a4a00; min-height: 0.6em; }
+.pick:disabled { opacity: 0.4; }
+@media (max-width: 520px) { .pick { font-size: 0.58rem; } }

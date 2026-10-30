@@ -1,7 +1,8 @@
 import "./style.css";
-import { type Meta, buyTech, combine, toggleEquip, checkAchievements, fileRelic, finishRun, modsFor } from "../game/meta";
+import { type Meta, type ModeId, buyTech, combine, toggleEquip, checkAchievements, fileRelic, finishRun, modsFor } from "../game/meta";
 import { RELICS, CHARMS } from "../game/content";
-import { type Run, type Refusal, buyCharm, buyUpgrade, chooseEvent, closeRound, dealRound, drainEvents, drawHand, pickCharm, rerollDraft, rerollShop, startRun } from "../game/run";
+import { type Run, type Refusal, buyCardUpgrade, buyCharm, buyUpgrade, chooseEvent, closeRound, dealRound, drainEvents, drawHand, pickCharm, rerollDraft, rerollShop, startRun } from "../game/run";
+import type { CardKind } from "../game/cards-shop";
 import { HAND_LABEL } from "../game/hands";
 import { localStore } from "../storage";
 import { loadMeta, loadRun, save } from "./save";
@@ -25,13 +26,16 @@ const REFUSAL: Record<Refusal, string> = {
   "no-hand": "Deal first.",
 };
 
+/** The only mode on screen until the start screen offers both (plan task 5). */
+const MODE: ModeId = "climb";
+
 async function boot(): Promise<void> {
   let meta: Meta = await loadMeta(store);
   let run: Run | null = await loadRun(store);
-  const ui: UI = { tab: "play", slotBet: 1, holdRows: new Set(), holdCols: new Set(), holdCells: new Set(), result: null, slotNote: "", overChips: 0, muted: false, picked: [], craftNote: "", stake: 0 };
-  const mk = (charms: string[]) => modsFor(meta, charms, run?.upgrades ?? {}, run?.boss ?? null, run?.stake ?? 0);
+  const ui: UI = { tab: "play", slotBet: 1, holdRows: new Set(), holdCols: new Set(), holdCells: new Set(), result: null, slotNote: "", overChips: 0, muted: false, picked: [], craftNote: "", stake: 0, cardKind: "rank" };
+  const mk = (charms: string[]) => modsFor(meta, MODE, charms, run?.upgrades ?? {}, run?.boss ?? null, run?.stake ?? 0);
   const mods = () => mk(run?.charms ?? []);
-  const view = (): View => ({ run, meta, mods: mods(), ui });
+  const view = (): View => ({ mode: MODE, run, meta, mods: mods(), ui });
   let lastPhase = run?.phase ?? "over";
 
   const hudEl = $("hud");
@@ -81,7 +85,7 @@ async function boot(): Promise<void> {
           toast(`Relic found: ${RELICS.find((r) => r.id === id)?.name ?? id}`);
           sfx.big();
         } else {
-          meta.chips++;
+          meta[MODE].chips++;
           toast("A relic you already own: +1 chip");
         }
       }
@@ -96,7 +100,7 @@ async function boot(): Promise<void> {
       if ((run.phase === "draft" || run.phase === "event") && lastPhase !== run.phase) sfx.draft();
       lastPhase = run.phase;
     }
-    for (const a of checkAchievements(meta, run)) {
+    for (const a of checkAchievements(meta, MODE, run)) {
       toast(`Achievement: ${a.name} (+${a.chips} chips)`);
       sfx.win();
     }
@@ -107,7 +111,7 @@ async function boot(): Promise<void> {
   function newRun(): void {
     const seed = (Date.now() ^ Math.imul(meta.seedCounter++, 2654435761)) >>> 0;
     ui.stake = Math.min(ui.stake, meta.maxStake);
-    run = startRun(seed, modsFor(meta, [], {}, null, ui.stake), ui.stake);
+    run = startRun(seed, modsFor(meta, MODE, [], {}, null, ui.stake), ui.stake);
     lastPhase = "play";
     ui.slotNote = "";
     clearHold();
@@ -197,11 +201,25 @@ async function boot(): Promise<void> {
       case "draw":
         drawAction();
         break;
+      case "cardkind":
+        ui.cardKind = value as CardKind;
+        sfx.click();
+        render();
+        break;
+      case "cardbuy":
+        if (run && buyCardUpgrade(run, Number(value), ui.cardKind, mods())) {
+          sfx.gold();
+          changed();
+        }
+        break;
       case "holdrow":
       case "holdcol": {
         const set = name === "holdrow" ? ui.holdRows : ui.holdCols;
         const n = Number(value);
-        if (!set.delete(n)) set.add(n);
+        if (!set.delete(n)) {
+          if (ui.holdRows.size + ui.holdCols.size >= mods().holdMax) return void toast(mods().holdMax === 0 ? "Nothing can be held this round." : `You can hold ${mods().holdMax} line${mods().holdMax > 1 ? "s" : ""} (the Hold branch of the tree raises it).`);
+          set.add(n);
+        }
         sfx.click();
         render();
         break;
@@ -277,7 +295,7 @@ async function boot(): Promise<void> {
         }
         break;
       case "buy":
-        if (buyTech(meta, value)) {
+        if (buyTech(meta, MODE, value)) {
           sfx.win();
           changed();
         }
