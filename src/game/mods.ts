@@ -1,21 +1,25 @@
 import { EVENT_CHANCE } from "./events";
-import { BASE_WEIGHTS, SYMS, type Sym } from "./slot";
+import { HAND_ORDER, type HandRank } from "./hands";
 
-/** Everything the tech tree and the charms of a run can change. Built fresh from the base by `applyAll`. */
+/** Everything the tech tree, the charms and the upgrades of a run can change. Built fresh from the base by `modsFor`. */
 export interface Mods {
   startCoins: number;
   turns: number;
-  /** board size: rows and columns, each unlocked on its own */
-  rows: number;
-  cols: number;
-  /** the chain multiplier grows by this much per cascade step, up to chainCap */
-  chainStep: number;
-  chainCap: number;
   slotMaxBet: number;
+  /** multiplies everything a round pays */
   slotWinMul: number;
-  weights: Record<Sym, number>;
-  /** multiplies the line pay of a symbol */
-  symPay: Record<Sym, number>;
+  /** multiplies the pay of each hand rank */
+  handMul: Record<HandRank, number>;
+  /** each paying line beyond the third makes a round pay this much more */
+  lineBonus: number;
+  /** single cards may be held, not only rows and columns */
+  singleHold: boolean;
+  /** the most lines (rows and columns) that may be held; 10 is no limit */
+  holdMax: number;
+  /** free draws after the first: the player holds again, only the last draw pays */
+  redraws: number;
+  /** ranks that are not in the deck (2 to 14) */
+  removedRanks: number[];
   quotaMul: number;
   /** share of the coins kept at round end that is paid as interest (capped) */
   interest: number;
@@ -29,16 +33,16 @@ export interface Mods {
 
 export function baseMods(): Mods {
   return {
-    startCoins: 50,
+    startCoins: 100,
     turns: 12,
-    rows: 3,
-    cols: 3,
-    chainStep: 0.25,
-    chainCap: 5,
     slotMaxBet: 3,
     slotWinMul: 1,
-    weights: { ...BASE_WEIGHTS },
-    symPay: Object.fromEntries(SYMS.map((s) => [s, 1])) as Record<Sym, number>,
+    handMul: Object.fromEntries(HAND_ORDER.map((r) => [r, 1])) as Record<HandRank, number>,
+    lineBonus: 0,
+    singleHold: false,
+    holdMax: 10,
+    redraws: 0,
+    removedRanks: [],
     quotaMul: 1,
     interest: 0,
     rerolls: 0,

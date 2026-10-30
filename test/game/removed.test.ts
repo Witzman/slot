@@ -10,8 +10,8 @@ function files(dir: string): string[] {
 }
 
 describe("the removed pusher and poker (#10)", () => {
-  it("no source file names them any more, except the refund table of old chips", () => {
-    const words = /\b(pusher|poker|tickPusher|dropAt|drawPoker|zoneHeat)\b/i;
+  it("no source file names the old pusher or poker code any more, except the refund table of old chips", () => {
+    const words = /\b(pusher|tickPusher|dropAt|drawPoker|zoneHeat)\b/i;
     for (const f of files(root)) {
       const code = readFileSync(f, "utf8").replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
       const hit = code.split("\n").filter((l) => words.test(l) && !l.includes("REMOVED_TECH_COST") && !l.includes('"pusher" in o'));

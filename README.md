@@ -1,6 +1,6 @@
 # SLOT
 
-A casino-style game for the web browser that is a slot machine roguelike: every run is a series of rounds at the reels; you pay a rising quota, pick charms and buy upgrades; between runs you spend chips on a tech tree, finish missions and achievements, and collect and combine relics.
+A casino-style game for the web browser that is a card slot machine roguelike: a 5x5 board of cards where every row and column is a poker hand and the hands add up; you hold lines, draw, and pay a rising quota, pick charms and buy upgrades; between runs you spend chips on a tech tree, finish missions and achievements, and collect and combine relics.
 
 It runs in any modern browser with no install and no account.
 
@@ -28,6 +28,6 @@ Newest first. A short summary of what was added, no details.
 - **Balance:** the numbers of the old three-game version are void (#10); the balance is measured again when the new engine is in.
 - **Relic perks and run events:** equip relics for passive bonuses before a run; between rounds a crossroads event offers two choices, with curses as the price.
 - **Bosses and stakes:** every third round is a boss round with its own rule and a higher quota; beating a boss pays tickets, chips and a relic and unlocks harder stakes.
-- **Charm shop:** run tickets, a shop next to the free charm call, per-symbol charms, 41 charms in all.
-- **Playable prototype:** slot machine only (pusher and poker were removed in #10), quota rounds, charm draft, coin upgrades, tech tree, missions, achievements, relics you can combine, saved in the browser.
+- **Charm shop:** run tickets, a shop next to the free charm call, hand-pay charms, 24 charms in all.
+- **Playable prototype:** a 5x5 card board with hold and draw (#10), quota rounds, charm draft, coin upgrades, tech tree, missions, achievements, relics you can combine, saved in the browser.
 - **Start:** the engine of the Pinball project (physics, rules, game flow, audio, renderer, storage) with a demo table.
