@@ -152,3 +152,14 @@ nav button { padding: 8px 4px; }
 .pick em { display: block; font-size: 0.5rem; font-style: normal; color: #7a4a00; min-height: 0.6em; }
 .pick:disabled { opacity: 0.4; }
 @media (max-width: 520px) { .pick { font-size: 0.58rem; } }
+
+.modes { display: flex; gap: 6px; }
+.modes button { padding: 6px 12px; border-radius: 999px; font-size: 0.85rem; }
+.modes button.active { background: var(--gold); color: #1a1030; border-color: var(--gold); font-weight: 800; }
+#roundbox button.active { border-color: var(--teal); }
+.brand[data-act] { cursor: pointer; }
+.modes-start { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin: 14px 0; text-align: left; }
+.modebox { background: #1b1030; border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+.modebox h2 { margin: 0; color: var(--gold); }
+.modebox p { margin: 0; }
+.modebox .big { margin-top: auto; }

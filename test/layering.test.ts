@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 const ALLOWED: Record<string, string[]> = {
   game: ["game"],
   storage: ["storage"],
-  app: ["app", "game", "storage"],
+  app: ["app", "game", "storage", "version"],
 };
 
 const root = fileURLToPath(new URL("../src", import.meta.url));
