@@ -1,8 +1,8 @@
 // The players of the simulation: a competent one that decides its holds by expected value, and two that do not think.
 import { CHARMS, UPGRADES, upgradeCost } from "../../src/game/content";
-import { type CardKind, CARD_KINDS, applyCardUpgrade, cardUpgradeCost } from "../../src/game/cards-shop";
+import { type CardKind, applyCardUpgrade, cardUpgradeCost } from "../../src/game/cards-shop";
 import { rankOf, suitOf } from "../../src/game/cards";
-import type { Mods } from "../../src/game/mods";
+import { type Mods, scoreMods } from "../../src/game/mods";
 import { type Run, quotaFor } from "../../src/game/run";
 import { type CardUpgrade, type Deal, type Hold, LINES, SIZE, deal, drawRound, lineCells, scoreBoard } from "../../src/game/round";
 import { makeRng } from "../../src/game/rng";
@@ -43,7 +43,7 @@ function expected(run: HoldState, m: Mods, board: number[], hold: Hold, samples:
   let total = 0;
   for (let i = 0; i < samples; i++) {
     const d = { board: [...board], bet: 1, phase: "hold" as const, draws: 0, maxDraws: 1 };
-    const res = drawRound(rng, d, hold, { removedRanks: m.removedRanks, singleHold: m.singleHold, upgrades: run.cardUpgrades, score: { handMul: m.handMul, globalMul: m.slotWinMul, lineBonus: m.lineBonus } });
+    const res = drawRound(rng, d, hold, { removedRanks: m.removedRanks, singleHold: m.singleHold, upgrades: run.cardUpgrades, score: scoreMods(m) });
     if (typeof res !== "string") total += res.payout;
   }
   return total / samples + (drawsLeft > 1 ? 0.1 : 0);
@@ -55,7 +55,8 @@ export function smartHold(run: HoldState, m: Mods): Hold {
   if (!d || m.holdMax === 0) return NONE;
   const board = d.board;
   const drawsLeft = d.maxDraws - d.draws;
-  const ranked = Array.from({ length: LINES }, (_, l) => l).filter((l) => m.colHold || l < SIZE).sort((a, b) => potential(board, b, run.cardUpgrades) - potential(board, a, run.cardUpgrades)).slice(0, 4);
+  const unseen = d.hidden ? (d.mystery ?? []) : [];
+  const ranked = Array.from({ length: LINES }, (_, l) => l).filter((l) => (m.colHold || l < SIZE) && !lineCells(l).some((i) => unseen.includes(i))).sort((a, b) => potential(board, b, run.cardUpgrades) - potential(board, a, run.cardUpgrades)).slice(0, 4);
   let held: number[] = [];
   let best = expected(run, m, board, NONE, 6, drawsLeft);
   while (held.length < Math.min(m.holdMax, 4)) {
@@ -158,9 +159,8 @@ export const smart: Policy = {
   voucher: () => true,
   buyCard(run, m) {
     // gold on a card that sits in a held line pays most; the bot keeps it simple: gild or rank up the cards of the deck at random once it is rich
-    const kinds = CARD_KINDS.filter((k) => m.cardKinds.includes(k) && k !== "joker");
-    if (kinds.length === 0) return null;
-    const kind = (kinds.includes("gold") ? "gold" : "rank") as CardKind;
+    const kind = (["poly", "holo", "gold", "foil", "rank"] as const).find((k) => m.cardKinds.includes(k)) as CardKind | undefined;
+    if (kind === undefined) return null;
     const cost = cardUpgradeCost(run.cardUpgrades, kind, m.cardCostMul);
     if (run.coins - cost < run.quota * 2 + 100) return null;
     const card = [...Array(52).keys()].filter((c) => !m.removedRanks.includes(rankOf(c))).find((c) => applyCardUpgrade(run.cardUpgrades, c, kind) !== null && rankOf(c) >= 10);

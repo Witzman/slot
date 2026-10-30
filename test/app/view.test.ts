@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { dealSession, endlessMods, startSession } from "../../src/game/endless";
-import { modsFor, newMeta } from "../../src/game/meta";
+import { buyTech, modsFor, newMeta } from "../../src/game/meta";
 import { dealRound, startRun } from "../../src/game/run";
 import { type UI, type View, hud, overlay, shopPanel, slotPanel, startScreen } from "../../src/app/view";
+import { endlessPanel } from "../../src/app/endless-view";
 
-const ui = (over: Partial<UI> = {}): UI => ({ screen: "game", tab: "play", slotBet: 1, holdRows: new Set(), holdCols: new Set(), holdCells: new Set(), result: null, slotNote: "", overChips: 0, muted: false, picked: [], craftNote: "", stake: 0, setup: "classic", today: 20000, cardKind: "rank", ...over });
+const ui = (over: Partial<UI> = {}): UI => ({ screen: "game", tab: "play", slotBet: 1, holdRows: new Set(), holdCols: new Set(), holdCells: new Set(), result: null, slotNote: "", overChips: 0, muted: false, picked: [], craftNote: "", stake: 0, setup: "classic", today: 20000, nudge: false, cardKind: "rank", ...over });
 const climb = (over: Partial<View> = {}): View => {
   const meta = newMeta();
   const mods = modsFor(meta, "climb", []);
@@ -157,5 +158,115 @@ describe("run structure on screen", () => {
     expect(html).toContain("aria-label=\"Hold column 3 (locked: pays nothing)");
     expect((html.match(/class="pc[^"]* dead/g) ?? []).length).toBe(5);
     expect(html).toContain("(not allowed this round)");
+  });
+});
+
+describe("card upgrades on screen", () => {
+  it("marks every kind on the board and gives the card its look", () => {
+    const meta = newMeta();
+    const mods = modsFor(meta, "climb", []);
+    const run = startRun(1, mods);
+    dealRound(run, mods, 1);
+    const board = (run.hand as { board: number[] }).board;
+    run.cardUpgrades = { [board[0] as number]: { glass: true, edition: "poly", seal: "coin" }, [board[1] as number]: { stone: true }, [board[2] as number]: { edition: "negative", seal: "red", gold: true } };
+    const html = slotPanel(climb({ run, mods }));
+    expect(html).toMatch(/class="pc[^"]* glass[^"]* ed-poly[^"]* seal-coin"[^>]*>.*?<em>◇P¢<\/em>/);
+    expect(html).toMatch(/class="pc[^"]* stone"[^>]*><span>▣<\/span><span><\/span><em>▣<\/em>/);
+    expect(html).toMatch(/gold[^"]* ed-negative seal-red"[^>]*>.*?<em>\$NR<\/em>/);
+  });
+
+  it("offers the kinds the tree has opened, with their text", () => {
+    const meta = newMeta();
+    meta.climb.chips = 500;
+    for (const id of ["golds", "editions", "seals"]) buyTech(meta, "climb", id);
+    const mods = modsFor(meta, "climb", []);
+    const html = shopPanel(climb({ meta, mods, run: startRun(1, mods) }));
+    for (const label of ["Foil", "Holo", "Coin seal", "Red seal"]) expect(html).toContain(`>${label}</button>`);
+    expect(html).not.toContain(">Glass</button>");
+  });
+});
+
+describe("loan and hand levels on screen", () => {
+  it("offers three loans in the shop, and none while one is owed", () => {
+    const run = startRun(1, modsFor(newMeta(), "climb", []));
+    run.phase = "draft";
+    run.draft = ["runner"];
+    run.quota = 40;
+    const html = overlay(climb({ run }));
+    for (const n of [10, 20, 40]) expect(html).toContain(`data-act="loan" data-v="${n}" >Loan ${n} <small>repay ${Math.ceil(n * 1.25)}</small>`);
+    run.debt = 13;
+    const owed = overlay(climb({ run }));
+    expect(owed).toMatch(/data-act="loan" data-v="10" disabled/);
+    expect(owed).toContain("You owe 13 coins");
+  });
+
+  it("lists a level for every hand among the upgrades", () => {
+    const meta = newMeta();
+    const mods = modsFor(meta, "climb", []);
+    const html = shopPanel(climb({ meta, mods, run: startRun(1, mods) }));
+    expect(html).toContain("Flush level");
+    expect(html).toContain("Royal flush level");
+  });
+});
+
+describe("grid tactics on screen", () => {
+  const withHand = (over: Record<string, unknown>) => {
+    const meta = newMeta();
+    const mods = modsFor(meta, "climb", []);
+    const run = startRun(1, mods);
+    dealRound(run, mods, 1);
+    Object.assign(run.hand as object, over);
+    return climb({ run, mods, meta });
+  };
+
+  it("shows a face-down card as a question mark that does not give the card away", () => {
+    const v = withHand({ mystery: [3], hidden: true });
+    const html = slotPanel(v);
+    expect(html).toMatch(/class="pc back mystery"[^>]*><span>\?<\/span>/);
+    expect(html).toContain("Face-down cards");
+    const cell = html.match(/<button class="pc back mystery"[^>]*>.*?<\/button>/)?.[0] ?? "";
+    expect(cell).not.toMatch(/[♠♥♦♣]/);
+  });
+
+  it("shows the card again after the draw", () => {
+    expect(slotPanel(withHand({ mystery: [3], hidden: false }))).not.toContain("pc back mystery");
+  });
+
+  it("offers a nudge toggle, and nudge buttons instead of holds while it is on", () => {
+    const off = slotPanel(withHand({ nudges: 1 }));
+    expect(off).toContain('data-act="nudgemode"');
+    expect(off).toContain("(1 left)");
+    expect(off).not.toContain('data-act="nudgerow"');
+    const v = withHand({ nudges: 1 });
+    v.ui.nudge = true;
+    const on = slotPanel(v);
+    expect((on.match(/data-act="nudgerow"/g) ?? []).length).toBe(5);
+    expect((on.match(/data-act="nudgecol"/g) ?? []).length).toBe(5);
+    expect(on).not.toContain('data-act="holdrow"');
+  });
+
+  it("offers no nudge without one", () => {
+    expect(slotPanel(withHand({ nudges: 0 }))).not.toContain("nudgemode");
+  });
+});
+
+describe("endless depth on screen", () => {
+  it("offers red, black and keep while a win waits, with the stake and the tries", () => {
+    const v = endless();
+    (v.session as { gamble: unknown }).gamble = { stake: 40, left: 2 };
+    const html = slotPanel(v) + (v.session ? endlessPanel(v) : "");
+    expect(html).toContain("Double 40 coins? 2 tries left");
+    for (const a of ['data-act="gamble" data-v="red"', 'data-act="gamble" data-v="black"', 'data-act="takewin"']) expect(html).toContain(a);
+  });
+
+  it("shows ascend once enough prestiges are made, and the stars", () => {
+    const v = endless();
+    expect(endlessPanel(v)).not.toContain("ascend");
+    v.meta.endless.prestiges = 4;
+    expect(endlessPanel(v)).toContain('data-act="ascend"');
+    v.meta.endless.prestiges = 1;
+    v.meta.endless.stars = 2;
+    expect(endlessPanel(v)).toContain("2 stars · ascension opens after 4 prestiges (1 so far)");
+    expect(hud(v)).toContain("2★");
   });
 });

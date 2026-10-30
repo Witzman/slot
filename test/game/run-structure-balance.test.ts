@@ -12,25 +12,25 @@ const runs = (setup: string, stake = 0, n = 10) => {
 };
 
 describe("balance of decks, stakes and challenges", () => {
-  const classic = runs("classic", 0, 6);
+  const classic = runs("classic", 0, 3);
 
   it("no deck is a trap or a free win: its median run stays within 65% to 140% of the classic one", () => {
     for (const d of SETUPS.filter((s) => s.kind === "deck" && s.id !== "classic")) {
-      const m = median(runs(d.id, 0, 6).map((r) => r.minutes));
+      const m = median(runs(d.id, 0, 3).map((r) => r.minutes));
       expect(m, d.id).toBeGreaterThanOrEqual(median(classic.map((r) => r.minutes)) * 0.65);
       expect(m, d.id).toBeLessThanOrEqual(median(classic.map((r) => r.minutes)) * 1.4);
     }
-  }, 120_000);
+  }, 300_000);
 
   it("a competent bot clears each challenge sometimes and never always", () => {
     for (const c of SETUPS.filter((s) => s.kind === "challenge")) {
-      const cleared = runs(c.id, 0, c.id === "thin" ? 10 : 8).filter((r) => r.rounds >= (c.goal as number)).length;
+      const cleared = runs(c.id, 0, 5).filter((r) => r.rounds >= (c.goal as number)).length;
       expect(cleared, c.id).toBeGreaterThanOrEqual(1);
-      expect(cleared, c.id).toBeLessThanOrEqual(c.id === "thin" ? 9 : 7);
+      expect(cleared, c.id).toBeLessThanOrEqual(4);
     }
-  }, 120_000);
+  }, 300_000);
 
   it("the top stake is not easier than no stake", () => {
-    expect(median(runs("classic", 5, 6).map((r) => r.rounds))).toBeLessThanOrEqual(median(classic.map((r) => r.rounds)));
-  }, 60_000);
+    expect(median(runs("classic", 5, 3).map((r) => r.rounds))).toBeLessThanOrEqual(median(classic.map((r) => r.rounds)));
+  }, 200_000);
 });

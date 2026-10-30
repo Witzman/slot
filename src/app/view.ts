@@ -4,7 +4,7 @@ import { BOSSES, CHARMS, CURSES, RELICS, RELIC_PERKS, TECH, UPGRADES, VOUCHERS, 
 import { CHALLENGE_CHIPS, SETUPS, setupUnlocked } from "../game/setups";
 import { eventById } from "../game/events";
 import type { Mods } from "../game/mods";
-import { type Run, canClose, charmPrice, quotaFor, shopRerollPrice } from "../game/run";
+import { LOAN_RATE, type Run, canClose, charmPrice, quotaFor, shopRerollPrice } from "../game/run";
 import { missionDef, missionProgress } from "../game/missions";
 import { rankOf, suitOf } from "../game/cards";
 import { BASE_PAY, HAND_LABEL, HAND_ORDER } from "../game/hands";
@@ -34,6 +34,8 @@ export interface UI {
   craftNote: string;
   /** stake picked for the next run */
   stake: number;
+  /** the row and column buttons nudge instead of hold */
+  nudge: boolean;
   /** start deck or challenge picked for the next run */
   setup: string;
   /** today, in days since 1970: the daily run is of this day */
@@ -107,17 +109,28 @@ function tableOf(v: View): Table {
 const RANK_LABEL: Record<number, string> = { 11: "J", 12: "Q", 13: "K", 14: "A" };
 const SUIT_GLYPH = ["♠", "♥", "♦", "♣"];
 
+const EDITION_MARK = { foil: "F", holo: "H", poly: "P", negative: "N" } as const;
+const SEAL_MARK = { coin: "¢", red: "R" } as const;
+
+/** The small marks of the upgrades a card carries. */
+export function cardMarks(u: CardUpgrade | undefined): string {
+  if (!u) return "";
+  return [u.joker ? "★" : "", u.gold ? "$" : "", u.rank ? `+${u.rank}` : "", u.anySuit ? "◆" : "", u.glass ? "◇" : "", u.stone ? "▣" : "", u.edition ? EDITION_MARK[u.edition] : "", u.seal ? SEAL_MARK[u.seal] : ""].join("");
+}
+
 /** One card, with its marks: held, new from the draw, and the upgrades it carries. */
 function cardHtml(t: Table, cell: number, held: boolean, fresh: boolean, clickable: boolean, dead = false): string {
   const board = t.hand?.board;
   if (!board) return `<div class="pc back"></div>`;
+  if (t.hand?.hidden && (t.hand.mystery ?? []).includes(cell)) return `<button class="pc back mystery${held ? " held" : ""}" data-act="holdcell" data-v="${cell}" ${clickable ? "" : "disabled"} aria-label="Face-down card"><span>?</span></button>`;
   const card = board[cell] as number;
   const u = t.cardUpgrades[card];
   const rank = Math.min(14, rankOf(card) + (u?.rank ?? 0));
   const suit = suitOf(card);
-  const marks = [u?.joker ? "★" : "", u?.gold ? "$" : "", u?.rank ? `+${u.rank}` : "", u?.anySuit ? "◆" : ""].join("");
-  const face = u?.joker ? "★" : `${RANK_LABEL[rank] ?? rank}`;
-  return `<button class="pc ${suit === 1 || suit === 2 ? "red" : ""}${dead ? " dead" : ""}${held ? " held" : ""}${fresh ? " new" : ""}${u?.joker ? " joker" : ""}${u?.gold ? " gold" : ""}" data-act="holdcell" data-v="${cell}" ${clickable ? "" : "disabled"}><span>${face}</span><span>${u?.joker ? "" : SUIT_GLYPH[suit]}</span>${marks ? `<em>${marks}</em>` : ""}</button>`;
+  const marks = cardMarks(u);
+  const face = u?.stone ? "▣" : u?.joker ? "★" : `${RANK_LABEL[rank] ?? rank}`;
+  const look = `${u?.joker ? " joker" : ""}${u?.gold ? " gold" : ""}${u?.glass ? " glass" : ""}${u?.stone ? " stone" : ""}${u?.edition ? " ed-" + u.edition : ""}${u?.seal ? " seal-" + u.seal : ""}`;
+  return `<button class="pc ${suit === 1 || suit === 2 ? "red" : ""}${dead ? " dead" : ""}${held ? " held" : ""}${fresh ? " new" : ""}${look}" data-act="holdcell" data-v="${cell}" ${clickable ? "" : "disabled"}><span>${face}</span><span>${u?.joker || u?.stone ? "" : SUIT_GLYPH[suit]}</span>${marks ? `<em>${marks}</em>` : ""}</button>`;
 }
 
 export function slotPanel(v: View): string {
@@ -133,10 +146,11 @@ export function slotPanel(v: View): string {
     const l = lineOf(line);
     return l ? `<span class="badge" title="${HAND_LABEL[l.rank]}">${HAND_LABEL[l.rank]} <b>+${Math.round(l.pay)}</b></span>` : `<span class="badge none"></span>`;
   };
+  const nudging = open && ui.nudge && (hand?.nudges ?? 0) > 0 && hand?.draws === 0;
   const locked = v.mode === "climb" && v.run ? v.run.lockedLine : -1;
   const deadCells = new Set(locked >= 0 ? lineCells(locked) : []);
-  const rowBtn = (r: number): string => `<button class="line${ui.holdRows.has(r) ? " on" : ""}${locked === r ? " locked" : ""}" data-act="holdrow" data-v="${r}" ${open ? "" : "disabled"} aria-label="Hold row ${r + 1}${locked === r ? " (locked: pays nothing)" : ""}">${ui.holdRows.has(r) ? "HOLD" : locked === r ? "LOCK" : "R" + (r + 1)}</button>`;
-  const colBtn = (c: number): string => `<button class="line${ui.holdCols.has(c) ? " on" : ""}${locked === SIZE + c ? " locked" : ""}" data-act="holdcol" data-v="${c}" ${open && mods.colHold ? "" : "disabled"} aria-label="Hold column ${c + 1}${locked === SIZE + c ? " (locked: pays nothing)" : ""}${mods.colHold ? "" : " (not allowed this round)"}">${ui.holdCols.has(c) ? "HOLD" : !mods.colHold ? "—" : locked === SIZE + c ? "LOCK" : "C" + (c + 1)}</button>`;
+  const rowBtn = (r: number): string => nudging ? `<button class="line nudge" data-act="nudgerow" data-v="${r}" aria-label="Shift row ${r + 1} one cell right">▶</button>` : `<button class="line${ui.holdRows.has(r) ? " on" : ""}${locked === r ? " locked" : ""}" data-act="holdrow" data-v="${r}" ${open ? "" : "disabled"} aria-label="Hold row ${r + 1}${locked === r ? " (locked: pays nothing)" : ""}">${ui.holdRows.has(r) ? "HOLD" : locked === r ? "LOCK" : "R" + (r + 1)}</button>`;
+  const colBtn = (c: number): string => nudging ? `<button class="line nudge" data-act="nudgecol" data-v="${c}" aria-label="Shift column ${c + 1} one cell down">▼</button>` : `<button class="line${ui.holdCols.has(c) ? " on" : ""}${locked === SIZE + c ? " locked" : ""}" data-act="holdcol" data-v="${c}" ${open && mods.colHold ? "" : "disabled"} aria-label="Hold column ${c + 1}${locked === SIZE + c ? " (locked: pays nothing)" : ""}${mods.colHold ? "" : " (not allowed this round)"}">${ui.holdCols.has(c) ? "HOLD" : !mods.colHold ? "—" : locked === SIZE + c ? "LOCK" : "C" + (c + 1)}</button>`;
   const cells: string[] = ['<span></span>', ...Array.from({ length: SIZE }, (_, c) => colBtn(c)), '<span></span>'];
   for (let r = 0; r < SIZE; r++) {
     cells.push(rowBtn(r));
@@ -154,13 +168,14 @@ export function slotPanel(v: View): string {
   const drawsLeft = hand ? hand.maxDraws - hand.draws : 0;
   const pays = HAND_ORDER.map((r) => `<li><span>${HAND_LABEL[r]}</span><b>${Math.round(BASE_PAY[r] * mods.handMul[r] * ui.slotBet)}</b></li>`).reverse().join("");
   const help = open
-    ? `Hold rows or columns${mods.singleHold ? " or single cards" : ""} you want to keep, then draw.${drawsLeft > 1 ? ` ${drawsLeft} draws: only the last one pays.` : " Only this draw pays."}`
+    ? `Hold rows or columns${mods.singleHold ? " or single cards" : ""} you want to keep, then draw.${hand?.hidden ? " Face-down cards: held, every hand they are in pays x1.5." : ""}${drawsLeft > 1 ? ` ${drawsLeft} draws: only the last one pays.` : " Only this draw pays."}`
     : "Deal 25 cards. Every row and every column is a poker hand; all hands add up.";
   return `
     <section class="machine slot">
       <h2>Cards <small>10 hands</small></h2>
       <div class="cards">${cells.join("")}</div>
       <p class="note">${esc(ui.slotNote) || help}</p>
+      ${open && (hand?.nudges ?? 0) > 0 && hand?.draws === 0 ? `<button data-act="nudgemode" class="${ui.nudge ? "active" : ""}">Nudge: ${ui.nudge ? "shifting, tap a line" : "off"} (${hand?.nudges} left)</button>` : ""}
       ${betRow("slotbet", ui.slotBet, mods.slotMaxBet, !playing || open)}
       ${open ? `<button class="big" data-act="draw">DRAW <small>${kept.size === 0 ? "hold nothing: draw all 25" : `keeping ${kept.size} cards`} · lines ${ui.holdRows.size + ui.holdCols.size}/${mods.holdMax}${drawsLeft > 1 ? ` · draw ${hand?.draws !== undefined ? hand.draws + 1 : 1} of ${hand?.maxDraws ?? 1}` : ""}</small></button>` : `<button class="big" data-act="deal" ${canDeal ? "" : "disabled"}>DEAL <small>${why || (broke ? "wallet empty: a free base round" : v.mode === "endless" ? `${cost} coins` : `${cost} coins · 1 turn`)}</small></button>`}
       <details class="paytable"><summary>Pay table (bet ${ui.slotBet})</summary>
@@ -212,7 +227,7 @@ function cardShop(v: View): string {
       const card = suit * 13 + i;
       const u = ups[card];
       const can = live && t.coins >= cost && applyCardUpgrade(ups, card, kind) !== null && !mods.removedRanks.includes(rankOf(card));
-      const marks = [u?.joker ? "★" : "", u?.gold ? "$" : "", u?.rank ? `+${u.rank}` : "", u?.anySuit ? "◆" : ""].join("");
+      const marks = cardMarks(u);
       const r = rankOf(card);
       return `<button class="pick ${suit === 1 || suit === 2 ? "red" : ""}${marks ? " has" : ""}" data-act="cardbuy" data-v="${card}" ${can ? "" : "disabled"} title="${r}${SUIT_GLYPH[suit]}">${RANK_LABEL[r] ?? r}${SUIT_GLYPH[suit]}<em>${marks}</em></button>`;
     }).join("");
@@ -291,6 +306,15 @@ function setupPicker(v: View): string {
   return `<h3>Start deck</h3><div class="charms setups">${group("deck")}</div><h3>Challenges</h3><div class="charms setups">${group("challenge")}</div>`;
 }
 
+/** Borrow a quarter, half or all of the quota just paid: it comes back with a quarter on top, added to the next quota. */
+function loanRow(run: Run): string {
+  const btns = [0.25, 0.5, 1].map((f) => {
+    const n = Math.max(1, Math.floor(run.quota * f));
+    return `<button data-act="loan" data-v="${n}" ${run.debt > 0 ? "disabled" : ""}>Loan ${n} <small>repay ${Math.ceil(n * LOAN_RATE)}</small></button>`;
+  }).join("");
+  return `<h3>Loan</h3><div class="row">${btns}</div><p class="hint">${run.debt > 0 ? `You owe ${run.debt} coins with the next quota.` : "Coins now, a quarter more on the next quota."}</p>`;
+}
+
 const startLabel = (v: View): string => `Start ${SETUPS.find((s) => s.id === v.ui.setup)?.name ?? "run"}`;
 
 /** The daily run: the same board for everyone that day, the classic deck, no stake. */
@@ -344,6 +368,7 @@ export function overlay(v: View): string {
     const rr = shopRerollPrice(run);
     return `<div class="modal"><div class="card-box wide"><h2>Round ${run.round - 1} cleared</h2><p>Quota paid. The phone rings: take one charm for free, or skip it for 2 tickets.</p><div class="charms">${cards}</div>
       <button data-act="skip">Skip the call (+2 tickets)</button>
+      ${loanRow(run)}
       ${run.rerollsLeft > 0 ? `<button data-act="reroll">Re-draw the call (${run.rerollsLeft} left)</button>` : ""}
       <h3>Shop <span class="teal">${run.tickets} tickets</span></h3>
       <div class="charms">${shop || '<p class="hint">Sold out.</p>'}${voucher}</div>

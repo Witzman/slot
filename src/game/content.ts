@@ -1,5 +1,5 @@
 import type { Effect, Mods } from "./mods";
-import type { HandRank } from "./hands";
+import { HAND_LABEL, HAND_ORDER, type HandRank } from "./hands";
 
 export interface TechNode {
   id: string;
@@ -27,11 +27,19 @@ export const TECH: readonly TechNode[] = [
   { id: "slotmul", branch: "economy", name: "Polished Felt", text: "Every round pays 15% more.", cost: 16, requires: ["slotbet"], effect: (m) => void (m.slotWinMul *= 1.15) },
   { id: "interest1", branch: "economy", name: "Savings Account", text: "Keep 5% of your coins as interest each round.", cost: 10, requires: ["purse2"], modes: ["climb"], effect: (m) => void (m.interest += 0.05) },
   { id: "auto1", branch: "economy", name: "Auto-Play", text: "Endless mode: the machine plays a round by itself every 4 seconds.", cost: 10, requires: ["purse1"], modes: ["endless"], effect: (m) => void (m.autoRate = Math.max(m.autoRate, 0.25)) },
+  { id: "autobuy", branch: "economy", name: "Auto-Buy", text: "Endless mode: auto-play buys the cheapest upgrade it can afford, once milestone 3 is reached.", cost: 14, requires: ["auto1"], modes: ["endless"], effect: (m) => void (m.autoBuy = true) },
+  { id: "autoprest", branch: "economy", name: "Auto-Prestige", text: "Endless mode: auto-play prestiges by itself at milestone 9.", cost: 24, requires: ["autobuy"], modes: ["endless"], effect: (m) => void (m.autoPrestige = true) },
+  { id: "gamble1", branch: "economy", name: "Double or Nothing", text: "Endless mode: after a win, bet it on red or black: it doubles or is gone. One try.", cost: 10, requires: ["purse1"], modes: ["endless"], effect: (m) => void (m.gamble = Math.max(m.gamble, 1)) },
+  { id: "gamble2", branch: "economy", name: "Press Your Luck", text: "Endless mode: up to three tries in a row.", cost: 16, requires: ["gamble1"], modes: ["endless"], effect: (m) => void (m.gamble = Math.max(m.gamble, 3)) },
   { id: "auto2", branch: "economy", name: "Turbo Play", text: "Endless mode: a round every second.", cost: 20, requires: ["auto1"], modes: ["endless"], effect: (m) => void (m.autoRate = Math.max(m.autoRate, 1)) },
 
   // hold: a round starts with at most two held lines, the tree widens that and adds single cards and free draws
   { id: "hold3", branch: "hold", name: "Third Hold", text: "Hold up to 3 lines.", cost: 6, requires: [], effect: (m) => void (m.holdMax = Math.max(m.holdMax, 3)) },
   { id: "hold4", branch: "hold", name: "Fourth Hold", text: "Hold up to 4 lines.", cost: 12, requires: ["hold3"], effect: (m) => void (m.holdMax = Math.max(m.holdMax, 4)) },
+  { id: "mystery1", branch: "hold", name: "Mystery Card", text: "One card of each deal is dealt face down. Hold it unseen and every hand it is in pays x1.5.", cost: 14, requires: ["hold3"], effect: (m) => void (m.mystery += 1) },
+  { id: "mystery2", branch: "hold", name: "Two Mysteries", text: "A second card is dealt face down.", cost: 22, requires: ["mystery1"], effect: (m) => void (m.mystery += 1) },
+  { id: "nudge1", branch: "hold", name: "Nudge", text: "Once a round, shift a row one cell right or a column one cell down before the draw.", cost: 12, requires: ["hold3"], effect: (m) => void (m.nudges += 1) },
+  { id: "nudge2", branch: "hold", name: "Second Nudge", text: "One more nudge a round.", cost: 20, requires: ["nudge1"], effect: (m) => void (m.nudges += 1) },
   { id: "hold5", branch: "hold", name: "Fifth Hold", text: "Hold up to 5 lines.", cost: 20, requires: ["hold4"], effect: (m) => void (m.holdMax = Math.max(m.holdMax, 5)) },
   { id: "single", branch: "hold", name: "Single Hold", text: "Hold single cards, not only rows and columns.", cost: 10, requires: ["hold3"], effect: (m) => void (m.singleHold = true) },
   { id: "redraw1", branch: "hold", name: "Second Draw", text: "A free second draw: hold again, only the last draw pays.", cost: 16, requires: ["single"], effect: (m) => void (m.redraws += 1) },
@@ -43,6 +51,11 @@ export const TECH: readonly TechNode[] = [
   { id: "golds", branch: "cards", name: "Gold Leaf", text: "Cards can be gilded: every hand with a gold card pays 50% more.", cost: 10, requires: [], effect: (m) => void m.cardKinds.push("gold") },
   { id: "anysuit", branch: "cards", name: "Chameleon", text: "Cards can count as any suit.", cost: 12, requires: ["golds"], effect: (m) => void m.cardKinds.push("anySuit") },
   { id: "jokers", branch: "cards", name: "Joker Shop", text: "Cards can become jokers, the best card for any hand.", cost: 20, requires: ["golds"], effect: (m) => void m.cardKinds.push("joker") },
+  { id: "glass1", branch: "cards", name: "Glass Works", text: "Cards can be made of glass: lines with them pay x1.6, but they may shatter.", cost: 12, requires: ["golds"], effect: (m) => void m.cardKinds.push("glass") },
+  { id: "stone1", branch: "cards", name: "Quarry", text: "Cards can turn to stone: blanks that pay a flat sum in each of their lines.", cost: 12, requires: ["golds"], effect: (m) => void m.cardKinds.push("stone") },
+  { id: "editions", branch: "cards", name: "Print Shop", text: "Cards can get a foil or a holo edition.", cost: 16, requires: ["golds"], effect: (m) => void m.cardKinds.push("foil", "holo") },
+  { id: "polys", branch: "cards", name: "Prism", text: "Cards can get a polychrome or a negative edition.", cost: 24, requires: ["editions"], effect: (m) => void m.cardKinds.push("poly", "negative") },
+  { id: "seals", branch: "cards", name: "Wax Seals", text: "Cards can get a coin seal or a red seal.", cost: 20, requires: ["editions"], effect: (m) => void m.cardKinds.push("coin", "red") },
   { id: "cardcost", branch: "cards", name: "Card Discount", text: "Card upgrades cost 25% less.", cost: 14, requires: ["golds"], effect: (m) => void (m.cardCostMul *= 0.75) },
 
   // hands: what each kind of hand pays
@@ -52,6 +65,8 @@ export const TECH: readonly TechNode[] = [
   { id: "runs2", branch: "hands", name: "Runs and Colours II", text: "Three of a kind, straights and flushes pay another 25% more.", cost: 16, requires: ["runs1"], effect: (m) => void (["three", "straight", "flush"] as const).forEach((r) => (m.handMul[r] *= 1.25)) },
   { id: "bigs1", branch: "hands", name: "Big Hands", text: "Full houses and four of a kind pay 25% more.", cost: 10, requires: ["runs1"], effect: (m) => void (["fullHouse", "four"] as const).forEach((r) => (m.handMul[r] *= 1.25)) },
   { id: "royals", branch: "hands", name: "Royal Court", text: "Straight flushes and royal flushes pay 50% more.", cost: 22, requires: ["bigs1"], effect: (m) => void (["straightFlush", "royal"] as const).forEach((r) => (m.handMul[r] *= 1.5)) },
+  { id: "adj1", branch: "hands", name: "Neighbours", text: "Each pair of neighbouring cards of one rank, across or down, pays half a bet.", cost: 10, requires: ["pairs1"], effect: (m) => void (m.adjacency += 0.5) },
+  { id: "adj2", branch: "hands", name: "Next Door", text: "Neighbouring pairs pay another half a bet.", cost: 18, requires: ["adj1"], effect: (m) => void (m.adjacency += 0.5) },
   { id: "linebonus", branch: "hands", name: "Many Hands", text: "Each paying line beyond the third makes the round pay 10% more.", cost: 12, requires: ["pairs1"], effect: (m) => void (m.lineBonus += 0.1) },
 ];
 
@@ -76,6 +91,8 @@ const noRanks = (...r: number[]): Effect => (m) => void r.forEach((x) => m.remov
 /** Run charms: one free pick of three after each round (the phone call), the rest bought with tickets; gone when the run ends. */
 export const CHARMS: readonly Charm[] = [
   // hands
+  ch("corners", "Corner Shop", "uncommon", "The four corner cards count as gold.", (m) => void m.goldCells.push(0, 4, 20, 24)),
+  ch("centre", "Centre Stage", "common", "The centre card counts as gold.", (m) => void m.goldCells.push(12)),
   ch("sharp", "Card Sharp", "common", "Jacks or better and two pair pay 50% more.", hands(1.5, "jacks", "twoPair")),
   ch("threes", "Three's Company", "common", "Three of a kind pays 50% more.", hands(1.5, "three")),
   ch("runner", "Straight Shooter", "common", "Straights pay 50% more.", hands(1.5, "straight")),
@@ -149,12 +166,32 @@ export interface Upgrade {
 }
 
 /** Bought with coins during a run, level by level, gone when the run ends (like towers in a tower defense). */
+/** Levels a hand can be raised to in a run. */
+export const HAND_LEVEL_MAX = 6;
+/** The pay bonus of a hand at a level: 25% for the first, each further level adds 15% less than the one before. */
+export const levelBonus = (level: number): number => {
+  let sum = 0;
+  for (let i = 0; i < level; i++) sum += 0.25 * Math.pow(0.85, i);
+  return sum;
+};
+/** Coins for the first level of each hand: the rarer the hand, the dearer. */
+const HAND_LEVEL_BASE: Record<HandRank, number> = { jacks: 10, twoPair: 12, three: 15, straight: 18, flush: 22, fullHouse: 28, four: 40, straightFlush: 60, five: 70, royal: 90 };
+const HAND_LEVELS: readonly Upgrade[] = HAND_ORDER.map((rank) => ({
+  id: `lv_${rank}`,
+  name: `${HAND_LABEL[rank]} level`,
+  text: `${HAND_LABEL[rank]} pays more with each level (+25%, then less and less).`,
+  base: HAND_LEVEL_BASE[rank],
+  max: HAND_LEVEL_MAX,
+  effect: (m: Mods, l: number) => void (m.handMul[rank] *= 1 + levelBonus(l)),
+}));
+
 export const UPGRADES: readonly Upgrade[] = [
   { id: "pay", name: "Better Odds", text: "Every round pays +10% per level.", base: 20, max: 5, effect: (m, l) => void (m.slotWinMul *= 1 + 0.1 * l) },
   { id: "pairs", name: "Pair Bonus", text: "Jacks or better and two pair pay +15% per level.", base: 15, max: 5, effect: (m, l) => void (["jacks", "twoPair"] as const).forEach((r) => (m.handMul[r] *= 1 + 0.15 * l)) },
   { id: "bigs", name: "Big Hands", text: "Straights and better pay +12% per level.", base: 25, max: 5, effect: (m, l) => void (["straight", "flush", "fullHouse", "four", "straightFlush", "royal"] as const).forEach((r) => (m.handMul[r] *= 1 + 0.12 * l)) },
   { id: "hours", name: "Longer Shifts", text: "+1 turn per round per level, from the next round.", base: 30, max: 3, effect: (m, l) => void (m.turns += l) },
   { id: "savings", name: "Savings Account", text: "+5% interest per level.", base: 25, max: 3, effect: (m, l) => void (m.interest += 0.05 * l) },
+  ...HAND_LEVELS,
 ];
 
 export const upgradeCost = (u: Upgrade, level: number): number => Math.ceil(u.base * Math.pow(u.growth ?? 1.5, level));

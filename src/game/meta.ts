@@ -20,6 +20,10 @@ export interface ModeStats {
 /** Chips and tree progress of one mode: the two modes never share them. */
 export interface ModeMeta {
   chips: number;
+  /** Endless: how often the player has prestiged since the last ascension (kept here, so a lost session does not lose it) */
+  prestiges: number;
+  /** Endless: ascensions made, each one a permanent bonus on every win */
+  stars: number;
   tech: string[];
   stats: ModeStats;
 }
@@ -45,7 +49,7 @@ export interface Meta {
   daily: { day: number; best: number; prev: number };
 }
 
-const newMode = (): ModeMeta => ({ chips: 0, tech: [], stats: { sessions: 0, playMs: 0, spins: 0, endings: {} } });
+const newMode = (): ModeMeta => ({ chips: 0, prestiges: 0, stars: 0, tech: [], stats: { sessions: 0, playMs: 0, spins: 0, endings: {} } });
 
 export function newMeta(): Meta {
   return { v: 2, climb: newMode(), endless: newMode(), relics: [], ach: [], runs: 0, bestRound: 1, life: { spins: 0 }, seedCounter: 1, maxStake: 0, loadout: [], challenges: [], daily: { day: 0, best: 0, prev: 0 } };
@@ -77,7 +81,7 @@ function restoreMode(raw: unknown): ModeMeta {
   const st = record(o.stats);
   const endings: Record<string, number> = {};
   for (const [k, n] of Object.entries(record(st.endings))) if (k !== "__proto__" && num(n) > 0) endings[k] = num(n);
-  return { chips: num(o.chips) + refund(o.tech, tech), tech, stats: { sessions: num(st.sessions), playMs: num(st.playMs), spins: num(st.spins), endings } };
+  return { chips: num(o.chips) + refund(o.tech, tech), prestiges: num(o.prestiges), stars: num(o.stars), tech, stats: { sessions: num(st.sessions), playMs: num(st.playMs), spins: num(st.spins), endings } };
 }
 
 /** Storage is untrusted: anything unreadable becomes a fresh meta, unknown ids are dropped. A v1 meta (one chip balance, one tree) becomes the climb mode. */
@@ -223,6 +227,8 @@ export const ACHIEVEMENTS: readonly Achievement[] = [
   { id: "boss3", name: "Boss Rush", text: "Beat three bosses in one run.", chips: 10, test: (_, r) => (r?.stats.bosses ?? 0) >= 3 },
   { id: "stake1", name: "Raising the Stakes", text: "Unlock stake 1.", chips: 3, test: (m) => m.maxStake >= 1 },
   { id: "stake3", name: "High Stakes Hero", text: "Unlock stake 3.", chips: 8, test: (m) => m.maxStake >= 3 },
+  { id: "edition1", name: "Collector's Edition", text: "Own a card with an edition.", chips: 3, test: (_, r) => Object.values(r?.cardUpgrades ?? {}).some((u) => u.edition !== undefined) },
+  { id: "fullkit", name: "Fully Loaded", text: "Own a card with an enhancement, an edition and a seal.", chips: 6, test: (_, r) => Object.values(r?.cardUpgrades ?? {}).some((u) => u.edition !== undefined && u.seal !== undefined && (u.gold || u.glass || u.stone || u.joker || u.anySuit)) },
   { id: "challenge1", name: "Challenger", text: "Clear a challenge.", chips: 5, test: (m) => m.challenges.length >= 1 },
   { id: "challenge3", name: "Unbroken", text: "Clear every challenge.", chips: 12, test: (m) => m.challenges.length >= 3 },
   { id: "daily1", name: "Daily Bread", text: "Play the daily run.", chips: 3, test: (m) => m.daily.day > 0 },
@@ -244,11 +250,14 @@ export function checkAchievements(meta: Meta, mode: ModeId, run: RunView | null)
   return fresh;
 }
 
+/** Every achievement makes the chips of a finished run or a prestige 1% bigger. The chips the achievements pay themselves are not multiplied. */
+export const chipBonus = (meta: Pick<Meta, "ach">): number => 1 + 0.01 * meta.ach.length;
+
 /** Chips for a finished run, paid once: 3 per round paid, one for trying, plus the missions. */
 export function finishRun(meta: Meta, run: Run): number {
   if (run.finished) return 0;
   run.finished = true;
-  const chips = Math.floor((run.completed * 3 + 1 + run.chipsPending) * (1 + 0.25 * run.stake));
+  const chips = Math.floor((run.completed * 3 + 1 + run.chipsPending) * (1 + 0.25 * run.stake) * chipBonus(meta));
   if (run.stats.bosses >= 1 && run.stake === meta.maxStake && meta.maxStake < MAX_STAKE) meta.maxStake++;
   meta.climb.chips += chips;
   meta.runs++;
